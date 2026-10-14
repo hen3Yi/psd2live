@@ -97,6 +97,23 @@ class EditorAndAgentScenario {
 		assertEquals("Authored turn", vm.state.value.previewModel!!.rig.puppet.parameters.single { it.id.raw == "ParamAngleX" }.name)
 	}
 
+	@Test fun anAgentReadsBackTheBlendModeAndClippingMaskItWrites() = editor {
+		workspace.importPsd(Characters.mouthPsd(temp).toString(), true)
+		consistent("imported mouth")
+		val meshes = vm.state.value.previewModel!!.rig.puppet.drawables.map { it.id.raw }
+		val (mask, masked) = meshes[0] to meshes[1]
+		call("rig_edit_structure", req("state" to state(), "edits" to listOf(mapOf("action" to "static", "kind" to "mesh", "id" to masked,
+			"blend_mode" to "Multiply", "masked_by" to listOf(mask), "invert_mask" to true)))).data()
+		consistent("blend mode and clipping mask")
+		val read = call("workspace_inspect", req("target" to "mesh:$masked")).data()
+		assertEquals("Multiply", read["blend_mode"]?.jsonPrimitive?.content)
+		assertEquals(listOf(mask), read["masked_by"]?.jsonArray?.map { it.jsonPrimitive.content })
+		assertEquals(true, read["invert_mask"]?.jsonPrimitive?.boolean)
+		val plain = call("workspace_inspect", req("target" to "mesh:$mask")).data()
+		assertEquals("Normal", plain["blend_mode"]?.jsonPrimitive?.content)
+		assertEquals(emptyList(), plain["masked_by"]?.jsonArray?.toList())
+	}
+
 	@Test fun aColorGestureAndTopologyChangesKeepUserGroupsAndCommitOnce() = editor {
 		workspace.importPsd(Characters.mouthPsd(temp).toString(), true)
 		consistent("imported mouth")

@@ -128,7 +128,7 @@ internal fun registerAuthoringOperations(registry: WorkspaceOperationRegistry, w
         WorkspaceOperationOutput(workspace.updateGeneration(request.text("state")))
     }
 
-    registerJsonOperation("inspect", "Read project context, find objects/layers/parameters, or inspect one kind:id's direct axes, channels and parent. scope=generation lists what waits for rig_generate. No point arrays. Query and page before expanding.",
+    registerJsonOperation("inspect", "Read project context, find objects/layers/parameters, or inspect one kind:id's direct axes, channels and parent (a mesh also gives blend_mode, masked_by, invert_mask and culling). scope=generation lists what waits for rig_generate. No point arrays. Query and page before expanding.",
         buildJsonObject { put("scope", choices("project", "settings", "preview", "generation", "objects", "layers", "parameters", "physics", "swings", "paths", "simulations", "vertex_groups")); put("query", string()); put("target", string()); put("offset", integer(0)); put("limit", integer(1, 64)) }) { a ->
         workspace.captureQueries().inspect(a)
     }
@@ -546,7 +546,7 @@ internal fun registerAuthoringOperations(registry: WorkspaceOperationRegistry, w
         put("partner_id", string()); put("linked", boolean()); put("open", boolean())
         put("label_type", string()); put("color", integer(Int.MIN_VALUE))
     }, listOf("action", "kind", "id"))
-    registerJsonOperation("structure", "Edit static object properties, delete deformers, assign a deformer Part, or organize parameter folders and 2D links. Edits are ordered and use the same persistent structure journal as the UI. Parameter definitions use parameter instead.",
+    registerJsonOperation("structure", "Edit static object properties (opacity, draw order, colors, blend mode, clipping masks masked_by/invert_mask, culling), delete deformers, assign a deformer Part, or organize parameter folders and 2D links. Edits are ordered and use the same persistent structure journal as the UI. Parameter definitions use parameter instead.",
         buildJsonObject { put("state", string()); put("edits", arraySchema(structureEdit, 1, 128)) }, listOf("state", "edits"), true) { a ->
         val edits = a.getValue("edits").jsonArray
         require(edits.none { edit ->

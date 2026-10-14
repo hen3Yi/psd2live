@@ -29,6 +29,13 @@ internal fun WorkspaceQueries.inspect(a: JsonObject): JsonObject {
                 if (channel.axes.isNotEmpty()) putJsonObject("axes") { channel.axes.forEach { axis -> put(axis.parameterId, JsonArray(axis.keys.map(::JsonPrimitive))) } }
             }) } }
             if (ref.kind == "mesh") {
+                // The static drawing fields rig_edit_structure (action static) writes, read back as it takes them.
+                queries.currentPuppet()?.drawables?.firstOrNull { it.id.raw == ref.id }?.let { drawable ->
+                    put("blend_mode", drawable.blendMode.name)
+                    put("masked_by", JsonArray(drawable.maskedBy.map { JsonPrimitive(it.raw) }))
+                    put("invert_mask", drawable.invertMask)
+                    put("culling", drawable.culling)
+                }
                 val paths = queries.currentPuppet()?.deformPaths?.filter { it.drawableId.raw == ref.id }.orEmpty()
                 if (paths.isNotEmpty()) {
                     putJsonArray("paths") {

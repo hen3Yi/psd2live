@@ -17,6 +17,8 @@ internal object WorkspaceInspectionResultSchemas {
     private val objectFields = mapOf("target" to s.handle(), "name" to s.string(), "parent" to s.handle(), "visible" to s.boolean(),
         "forms" to s.integer(0), "axes" to axes,
         "channels" to s.array(s.obj(mapOf("channel" to s.handle(), "value" to s.string(), "axes" to axes), setOf("channel", "value"))),
+        "blend_mode" to s.choices(*org.umamo.runtime.model.BlendMode.entries.map { it.name }.toTypedArray()),
+        "masked_by" to s.array(s.handle()), "invert_mask" to s.boolean(), "culling" to s.boolean(),
         "paths" to s.array(s.obj(pathFields), 1, Int.MAX_VALUE),
         "inherited" to s.array(s.obj(mapOf("target" to s.handle(), "name" to s.string(), "parameters" to s.array(s.handle())))))
     private val preview = s.obj(mapOf("values" to s.dictionary(s.number()), "locked" to s.array(s.handle())))

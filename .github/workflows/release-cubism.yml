@@ -472,6 +472,10 @@ jobs:
     if: needs.prepare.outputs.create_release == 'true'
     runs-on: ubuntu-latest
     environment: release-cubism
+    permissions:
+      contents: write
+      id-token: write      # build provenance attestation
+      attestations: write
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       TAG: ${{ needs.prepare.outputs.tag }}
@@ -497,6 +501,17 @@ jobs:
           pattern: linux-cubism-*
           merge-multiple: true
           path: release-assets
+
+      # Lets anyone check a download came from this workflow and commit:
+      #   gh attestation verify <file> --repo <owner>/<repo>
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: release-assets/PSD2Live-*
+
+      - name: Write SHA256SUMS
+        working-directory: release-assets
+        run: sha256sum PSD2Live-* > SHA256SUMS.txt
 
       # Notes come from .github/release-notes.md; the download badges are built from the assets.
       - name: Compose release notes
@@ -526,3 +541,4 @@ jobs:
             release-assets/PSD2Live-${{ env.VERSION }}-linux-x64.tar.gz
             release-assets/PSD2Live-${{ env.VERSION }}-linux-arm64.deb
             release-assets/PSD2Live-${{ env.VERSION }}-linux-arm64.tar.gz
+            release-assets/SHA256SUMS.txt

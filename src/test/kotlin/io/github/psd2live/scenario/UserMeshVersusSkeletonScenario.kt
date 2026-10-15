@@ -45,9 +45,18 @@ class UserMeshVersusSkeletonScenario {
 			forgetBuilds()
 			runtime.install(runtime.state.value.state, now.projectId, damaged, builder.build(damaged), discardUnsaved = true)
 		}
+		var full = 0
+		val found = RigRegenerationCheckpoint.staleMerges(now.model) { full++ }
 		val codes = inspect().getValue("quality").jsonObject.getValue("regeneration").jsonObject.getValue("findings").jsonArray
 			.map { it.jsonObject.getValue("code").jsonPrimitive.content }
 		expect("reported", "REGENERATION_REPAIR_AVAILABLE" in codes) { "the bad merge is not reported: $codes" }
+		// An edit after the checkpoints makes a new model; their merges are not redone for it, and it still finds them.
+		edit("blend the top", "rig_edit_structure", req("edits" to listOf(
+			mapOf("action" to "static", "kind" to "mesh", "id" to mesh("top"), "blend_mode" to "Multiply"))))
+		var merges = 0
+		val after = RigRegenerationCheckpoint.staleMerges(now.model) { merges++ }
+		expect("after an edit", after.map { it.target } == found.map { it.target }) { "an edit changed the stale checkpoints: $found, then $after" }
+		expect("not merged again", merges < full) { "an edit after the checkpoints merged them again ($merges steps, $full at first)" }
 		expect("repair", updateGenerated("repair")) { "the update repaired nothing" }
 		Oracles.replays(this, "repaired")
 		Oracles.quality(this, "repaired", emptySet())

@@ -30,10 +30,49 @@ internal object RigMergeRepair {
 	 */
 	fun repaired(overlay: RigEditOverlay, current: PuppetModel, atlas: PuppetAtlas, sources: List<ArtSource>,
 	             named: (PuppetModel, List<kotlinx.serialization.json.JsonObject>) -> PuppetModel = { model, _ -> model },
-	             checkpoint: () -> Unit = {}): Repair? {
+	             checkpoint: () -> Unit = {}): Repair? = repaired(overlay, { current }, atlas, sources, named, checkpoint)
+
+	private fun repaired(overlay: RigEditOverlay, current: () -> PuppetModel, atlas: PuppetAtlas, sources: List<ArtSource>,
+	                     named: (PuppetModel, List<kotlinx.serialization.json.JsonObject>) -> PuppetModel,
+	                     checkpoint: () -> Unit): Repair? {
+		val corrections = corrections(overlay, atlas, sources, named, checkpoint)
+		val (old, new) = corrections.correction ?: return null
+		val rig = current().reboundTo(atlas, sources)
+		val result = RigRegeneration.merge(old, new, rig, checkpoint)
+		// The stale checkpoints stay in the journal; once a repair carried their correction, there is nothing left to do.
+		if (structure(result.model) == structure(rig)) return null
+		return Repair(result.model, corrections.issues + result.issues)
+	}
+
+	/** What the regeneration checkpoints of a journal correct: the last correction to carry on, and the issues found on the way. */
+	private class Corrections(val correction: Pair<PuppetModel, PuppetModel>?, val issues: List<RigRegeneration.Issue>)
+
+	/** The inputs [corrections] read: the journal up to its last checkpoint storing a generated rig, the binding, the naming. */
+	private class CorrectionInputs(val records: List<kotlinx.serialization.json.JsonObject>, val atlas: PuppetAtlas, val sources: List<ArtSource>,
+	                               val named: (PuppetModel, List<kotlinx.serialization.json.JsonObject>) -> PuppetModel) {
+		fun sameAs(other: CorrectionInputs) = named == other.named && records.size == other.records.size &&
+			records.indices.all { records[it] === other.records[it] || records[it] == other.records[it] } &&
+			(atlas === other.atlas || atlas == other.atlas) && (sources === other.sources || sources == other.sources)
+	}
+
+	/**
+	 * [corrections]' last answer, by its inputs: an edit after the last checkpoint makes a new model but leaves the
+	 * checkpoints, and what their merges come to, as they were.
+	 */
+	@Volatile private var lastCorrections: Pair<CorrectionInputs, Corrections>? = null
+
+	/**
+	 * Every regeneration checkpoint of [overlay]'s journal merged again with this build, bound to [atlas] and [sources]:
+	 * the correction the ones it merges differently carry to the end of the journal, null when it merges every one alike.
+	 */
+	private fun corrections(overlay: RigEditOverlay, atlas: PuppetAtlas, sources: List<ArtSource>,
+	                        named: (PuppetModel, List<kotlinx.serialization.json.JsonObject>) -> PuppetModel,
+	                        checkpoint: () -> Unit): Corrections {
 		val journal = overlay.authoringJournal
 		fun bound(model: PuppetModel) = model.reboundTo(atlas, sources)
 		val generated = journal.indices.filter { RigCheckpoint.isRecord(journal[it]) && RigCheckpoint.generated(journal[it]) != null }
+		val inputs = CorrectionInputs(journal.subList(0, (generated.lastOrNull() ?: -1) + 1).toList(), atlas, sources, named)
+		lastCorrections?.let { (seen, answer) -> if (seen.sameAs(inputs)) return answer }
 		var correction: Pair<PuppetModel, PuppetModel>? = null
 		val issues = ArrayList<RigRegeneration.Issue>()
 		for ((previousIndex, index) in generated.zipWithNext()) {
@@ -63,12 +102,7 @@ internal object RigMergeRepair {
 			issues += merged.issues
 			correction = stored to merged.model
 		}
-		val (old, new) = correction ?: return null
-		val rig = bound(current)
-		val result = RigRegeneration.merge(old, new, rig, checkpoint)
-		// The stale checkpoints stay in the journal; once a repair carried their correction, there is nothing left to do.
-		if (structure(result.model) == structure(rig)) return null
-		return Repair(result.model, issues + result.issues)
+		return Corrections(correction, issues).also { lastCorrections = inputs to it }
 	}
 
 	/** [stale]'s last answer, by model identity: a repair check merges again, so a model asks it once. */
@@ -86,7 +120,7 @@ internal object RigMergeRepair {
 		val overlay = model.config.rigEdits
 		val found = if (overlay.importedCmo3 != null ||
 			overlay.authoringJournal.count { RigCheckpoint.isRecord(it) && RigCheckpoint.generated(it) != null } < 2) emptyList()
-		else repaired(overlay, model.authoredPuppet(overlay), model.rig.puppet.atlas, model.rig.puppet.sources, named, checkpoint)
+		else repaired(overlay, { model.authoredPuppet(overlay) }, model.rig.puppet.atlas, model.rig.puppet.sources, named, checkpoint)
 			?.issues?.filter { it.kind == RigRegeneration.IssueKind.REMERGED }.orEmpty()
 		checked = model to found
 		return found

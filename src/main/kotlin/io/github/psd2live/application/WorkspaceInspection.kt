@@ -2,6 +2,7 @@ package io.github.psd2live.application
 
 import io.github.psd2live.project.WorkspaceKeyformTargetRef
 import kotlinx.serialization.json.*
+import org.umamo.runtime.model.*
 
 /** Compose discovery and detail from an already detached query capture. */
 internal fun WorkspaceQueries.inspect(a: JsonObject): JsonObject {
@@ -20,6 +21,10 @@ internal fun WorkspaceQueries.inspect(a: JsonObject): JsonObject {
             put("target", target); put("name", obj.name)
             obj.parentId?.let { put("parent", it) }
             put("visible", obj.visible)
+            queries.currentPuppet()?.let { puppet -> staticFields(puppet, ref)?.let { (part, fields) ->
+                part?.let { put("part", it) }
+                put("static", fields)
+            } }
             obj.geometry?.let { geometry ->
                 put("forms", geometry.keyformCount)
                 putJsonObject("axes") { geometry.axes.forEach { axis -> put(axis.parameterId, JsonArray(axis.keys.map(::JsonPrimitive))) } }
@@ -29,13 +34,6 @@ internal fun WorkspaceQueries.inspect(a: JsonObject): JsonObject {
                 if (channel.axes.isNotEmpty()) putJsonObject("axes") { channel.axes.forEach { axis -> put(axis.parameterId, JsonArray(axis.keys.map(::JsonPrimitive))) } }
             }) } }
             if (ref.kind == "mesh") {
-                // The static drawing fields rig_edit_structure (action static) writes, read back as it takes them.
-                queries.currentPuppet()?.drawables?.firstOrNull { it.id.raw == ref.id }?.let { drawable ->
-                    put("blend_mode", drawable.blendMode.name)
-                    put("masked_by", JsonArray(drawable.maskedBy.map { JsonPrimitive(it.raw) }))
-                    put("invert_mask", drawable.invertMask)
-                    put("culling", drawable.culling)
-                }
                 val paths = queries.currentPuppet()?.deformPaths?.filter { it.drawableId.raw == ref.id }.orEmpty()
                 if (paths.isNotEmpty()) {
                     putJsonArray("paths") {
@@ -140,6 +138,46 @@ internal fun WorkspaceQueries.inspect(a: JsonObject): JsonObject {
                 if (offset.toLong() + limit < items.size) put("next", offset + limit)
             }
         }
+    }
+}
+
+/**
+ * An object's organizational part and the fields rig_edit_structure (action static) writes, read back as it
+ * takes them. These are the values at rest; a keyed channel also lists its axes under channels.
+ */
+private fun staticFields(puppet: PuppetModel, ref: WorkspaceKeyformTargetRef): Pair<String?, JsonObject>? {
+    fun color(value: ColorRgb) = JsonArray(listOf(value.red, value.green, value.blue).map(::JsonPrimitive))
+    return when (ref.kind) {
+        "mesh" -> puppet.drawables.firstOrNull { it.id.raw == ref.id }?.let { d ->
+            puppet.partByDrawable()[d.id]?.raw to buildJsonObject {
+                put("opacity", d.opacity); put("draw_order", d.drawOrder)
+                put("multiply_color", color(d.multiplyColor)); put("screen_color", color(d.screenColor))
+                put("blend_mode", d.blendMode.name); put("masked_by", JsonArray(d.maskedBy.map { JsonPrimitive(it.raw) }))
+                put("invert_mask", d.invertMask); put("culling", d.culling)
+                put("selectable", d.isSelectable); put("user_data", d.userData)
+            }
+        }
+        "warp", "rotation" -> puppet.deformers.firstOrNull { it.id.raw == ref.id }?.let { deformer ->
+            deformer.partId?.raw to buildJsonObject {
+                when (deformer) {
+                    is Deformer.Warp -> {
+                        put("opacity", deformer.opacity)
+                        put("multiply_color", color(deformer.multiplyColor)); put("screen_color", color(deformer.screenColor))
+                        put("quad", deformer.isQuadTransform)
+                    }
+                    is Deformer.Rotation -> {
+                        put("opacity", deformer.opacity)
+                        put("multiply_color", color(deformer.multiplyColor)); put("screen_color", color(deformer.screenColor))
+                    }
+                }
+                put("selectable", deformer.isSelectable)
+            }
+        }
+        "part" -> puppet.parts.firstOrNull { it.id.raw == ref.id }?.let { part ->
+            puppet.parts.firstOrNull { OrgChild.Part(part.id) in it.children }?.id?.raw to
+                buildJsonObject { put("selectable", part.isSelectable) }
+        }
+        else -> null
     }
 }
 

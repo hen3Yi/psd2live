@@ -128,7 +128,7 @@ internal fun registerAuthoringOperations(registry: WorkspaceOperationRegistry, w
         WorkspaceOperationOutput(workspace.updateGeneration(request.text("state")))
     }
 
-    registerJsonOperation("inspect", "Read project context, find objects/layers/parameters, or inspect one kind:id's direct axes, channels and parent (a mesh also gives blend_mode, masked_by, invert_mask and culling). scope=generation lists what waits for rig_generate. No point arrays. Query and page before expanding.",
+    registerJsonOperation("inspect", "Read project context, find objects/layers/parameters, or inspect one kind:id's direct axes, channels and parent (also its organizational part and the static fields rig_edit_structure writes: opacity, colors, draw order, blend mode, clipping masks, culling, selectable, user data, quad). scope=generation lists what waits for rig_generate. No point arrays. Query and page before expanding.",
         buildJsonObject { put("scope", choices("project", "settings", "preview", "generation", "objects", "layers", "parameters", "physics", "swings", "paths", "simulations", "vertex_groups")); put("query", string()); put("target", string()); put("offset", integer(0)); put("limit", integer(1, 64)) }) { a ->
         workspace.captureQueries().inspect(a)
     }

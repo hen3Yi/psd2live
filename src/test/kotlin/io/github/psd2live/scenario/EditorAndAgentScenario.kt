@@ -97,21 +97,34 @@ class EditorAndAgentScenario {
 		assertEquals("Authored turn", vm.state.value.previewModel!!.rig.puppet.parameters.single { it.id.raw == "ParamAngleX" }.name)
 	}
 
-	@Test fun anAgentReadsBackTheBlendModeAndClippingMaskItWrites() = editor {
+	@Test fun anAgentReadsBackTheStaticFieldsItWrites() = editor {
 		workspace.importPsd(Characters.mouthPsd(temp).toString(), true)
 		consistent("imported mouth")
-		val meshes = vm.state.value.previewModel!!.rig.puppet.drawables.map { it.id.raw }
-		val (mask, masked) = meshes[0] to meshes[1]
-		call("rig_edit_structure", req("state" to state(), "edits" to listOf(mapOf("action" to "static", "kind" to "mesh", "id" to masked,
-			"blend_mode" to "Multiply", "masked_by" to listOf(mask), "invert_mask" to true)))).data()
-		consistent("blend mode and clipping mask")
-		val read = call("workspace_inspect", req("target" to "mesh:$masked")).data()
+		val puppet = vm.state.value.previewModel!!.rig.puppet
+		val (mask, masked) = puppet.drawables[0].id.raw to puppet.drawables[1].id.raw
+		val deformer = puppet.deformers.first()
+		val kind = if (deformer is org.umamo.runtime.model.Deformer.Warp) "warp" else "rotation"
+		call("rig_edit_structure", req("state" to state(), "edits" to listOf(
+			mapOf("action" to "static", "kind" to "mesh", "id" to masked, "blend_mode" to "Multiply", "masked_by" to listOf(mask),
+				"invert_mask" to true, "opacity" to 0.5, "screen_color" to listOf(0.25, 0, 0), "user_data" to "note", "selectable" to false),
+			mapOf("action" to "static", "kind" to kind, "id" to deformer.id.raw, "opacity" to 0.75, "selectable" to false)))).data()
+		consistent("static fields")
+		suspend fun static(target: String) = call("workspace_inspect", req("target" to target)).data().getValue("static").jsonObject
+		val read = static("mesh:$masked")
 		assertEquals("Multiply", read["blend_mode"]?.jsonPrimitive?.content)
 		assertEquals(listOf(mask), read["masked_by"]?.jsonArray?.map { it.jsonPrimitive.content })
 		assertEquals(true, read["invert_mask"]?.jsonPrimitive?.boolean)
-		val plain = call("workspace_inspect", req("target" to "mesh:$mask")).data()
+		assertEquals(0.5f, read["opacity"]?.jsonPrimitive?.float)
+		assertEquals(listOf(0.25f, 0f, 0f), read["screen_color"]?.jsonArray?.map { it.jsonPrimitive.float })
+		assertEquals("note", read["user_data"]?.jsonPrimitive?.content)
+		assertEquals(false, read["selectable"]?.jsonPrimitive?.boolean)
+		val plain = static("mesh:$mask")
 		assertEquals("Normal", plain["blend_mode"]?.jsonPrimitive?.content)
 		assertEquals(emptyList(), plain["masked_by"]?.jsonArray?.toList())
+		assertEquals(1f, plain["opacity"]?.jsonPrimitive?.float)
+		val deformed = static("$kind:${deformer.id.raw}")
+		assertEquals(0.75f, deformed["opacity"]?.jsonPrimitive?.float)
+		assertEquals(false, deformed["selectable"]?.jsonPrimitive?.boolean)
 	}
 
 	@Test fun aColorGestureAndTopologyChangesKeepUserGroupsAndCommitOnce() = editor {

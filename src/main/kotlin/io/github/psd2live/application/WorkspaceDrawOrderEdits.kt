@@ -25,6 +25,7 @@ internal object WorkspaceDrawOrderEdits {
         val after = if (value == JsonNull) before - layer - drawable.id.raw else {
             val order = value.jsonPrimitive.float
             require(order.isFinite() && order in 0f..1000f) { "Draw order must be within 0..1000" }
+            require(order % 1f == 0f) { WorkspaceDrawOrderSchemas.WHOLE }
             before - drawable.id.raw + (layer to order)
         }
         if (before == after) return document
@@ -34,9 +35,20 @@ internal object WorkspaceDrawOrderEdits {
 }
 
 internal object WorkspaceDrawOrderSchemas {
+    /** Why a fractional order is refused, and what to do instead; the tools' descriptions say the same. */
+    const val WHOLE = "Draw order must be a whole number: Cubism stores integers. Pick a free number between the two " +
+        "neighbours (generated layers are 10 apart), or move a neighbour to open a gap."
+
+    /** The draw-order paragraph every tool that writes one carries. */
+    const val GUIDE = "Draw orders are whole numbers 0..1000 (Cubism stores integers; fractions are refused); a higher " +
+        "number draws in front. Generated layers are 10 apart (closer only when there are more than 100), so a mesh " +
+        "goes between two neighbours at a free number in the gap, e.g. 385 between 380 and 390. When the neighbours " +
+        "are consecutive, move one of them to open a gap rather than renumbering the rest; read the current orders " +
+        "with workspace_inspect first."
+
     val request = WorkspaceResultSchema.obj(mapOf(
         "target" to WorkspaceResultSchema.handle(),
-        "order" to buildJsonObject { put("type", JsonArray(listOf(JsonPrimitive("number"), JsonPrimitive("null")))); put("minimum", 0); put("maximum", 1000) },
+        "order" to buildJsonObject { put("type", JsonArray(listOf(JsonPrimitive("integer"), JsonPrimitive("null")))); put("minimum", 0); put("maximum", 1000) },
     ))
     val result = WorkspaceResultSchema.obj(WorkspaceResultSchema.identity + mapOf(
         "applied" to WorkspaceResultSchema.constant(false), "changed" to WorkspaceResultSchema.array(WorkspaceResultSchema.handle(), 1, Int.MAX_VALUE)),
@@ -49,7 +61,7 @@ internal fun registerDrawOrderOperations(registry: WorkspaceOperationRegistry, p
         "properties" to JsonObject(business.getValue("properties").jsonObject + ("state" to WorkspaceResultSchema.handle())),
         "required" to JsonArray(business.getValue("required").jsonArray + JsonPrimitive("state"))))
     registry.register(WorkspaceOperationDefinition(WorkspaceDrawOrderEdits.OP,
-        "Set the ruler's explicit drawing order for a current layer or mesh target (0..1000). This order wins over animated order until reset. Use order=null to remove the layer and mesh overrides and restore the underlying generated or authored order, including its animation. Ordinary, imported and partitioned artwork use the same rule; the underlying ordered edits remain intact.",
+        "Set the ruler's explicit drawing order for a current layer or mesh target. This order wins over animated order until reset. Use order=null to remove the layer and mesh overrides and restore the underlying generated or authored order, including its animation. Ordinary, imported and partitioned artwork use the same rule; the underlying ordered edits remain intact. " + WorkspaceDrawOrderSchemas.GUIDE,
         schema, WorkspaceOperationKind.DOCUMENT, batchable = true, resultSchema = WorkspaceDrawOrderSchemas.result)) { request, context ->
         val edit = WorkspaceDocumentOperation(WorkspaceDrawOrderEdits.OP, JsonObject(request - "state"))
         WorkspaceOperationOutput(port.applyDocumentEdits(request.getValue("state").jsonPrimitive.content,

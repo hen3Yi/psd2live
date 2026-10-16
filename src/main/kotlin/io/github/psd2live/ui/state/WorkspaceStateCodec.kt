@@ -433,6 +433,7 @@ internal object WorkspaceStateCodec {
         put("exportIncludeUserData", state.exportIncludeUserData)
         put("exportIncludeDisplayInfo", state.exportIncludeDisplayInfo)
         put("exportPixelsPerUnit", state.exportPixelsPerUnit?.let(::JsonPrimitive) ?: JsonNull)
+        put("drawOrderStep", state.drawOrderStep)
         state.atlasBudget?.let { put(io.github.psd2live.project.WorkspaceSettingsCodec.ATLAS, io.github.psd2live.project.WorkspaceSettingsCodec.encodeAtlasBudget(it)) }
         state.atlasArrangement?.let { put(io.github.psd2live.project.AtlasArrangementCodec.KEY, io.github.psd2live.project.AtlasArrangementCodec.encode(it)) }
         put("exportOptionsExpanded", state.exportOptionsExpanded)
@@ -571,6 +572,9 @@ internal object WorkspaceStateCodec {
         exportPixelsPerUnit = if ("exportPixelsPerUnit" in value) {
             value["exportPixelsPerUnit"]?.jsonPrimitive?.floatOrNull?.takeIf { it > 0f }
         } else base.exportPixelsPerUnit,
+        // A settings payload without a step is a document generated with consecutive orders.
+        drawOrderStep = value["drawOrderStep"]?.jsonPrimitive?.intOrNull?.coerceIn(1, 100)
+            ?: if ("atlasSize" in value) io.github.psd2live.core.LEGACY_DRAW_ORDER_STEP else base.drawOrderStep,
         // A settings payload (it always has atlasSize) without a budget means none; other payloads keep base's.
         atlasBudget = if (io.github.psd2live.project.WorkspaceSettingsCodec.ATLAS in value) io.github.psd2live.project.WorkspaceSettingsCodec.decodeAtlasBudget(value)
             else if ("atlasSize" in value) null else base.atlasBudget,

@@ -9,6 +9,7 @@ import org.umamo.format.art.LayerId
 import org.umamo.format.art.LayerRaster
 import org.umamo.format.art.SourceArt
 import org.umamo.runtime.model.*
+import kotlin.math.roundToInt
 
 /** Two independently paintable slices of the same rig, welded vertex for vertex. */
 internal object DepthSplit {
@@ -97,7 +98,8 @@ internal object DepthSplit {
             when {
                 low >= 1f && high <= 999f -> order
                 low == high -> order.coerceIn(1f, 999f)
-                else -> 1f + (order - low) / (high - low) * 998f
+                // Whole numbers, as Cubism stores them.
+                else -> (1f + (order - low) / (high - low) * 998f).roundToInt().toFloat()
             }
         }
         val backOrder = placedOrders.values.min() - 1f
@@ -273,7 +275,8 @@ internal object DepthSplit {
             when {
                 low >= 1f && high <= 999f -> order
                 low == high -> order.coerceIn(1f, 999f)
-                else -> 1f + (order - low) / (high - low) * 998f
+                // Whole numbers, as Cubism stores them.
+                else -> (1f + (order - low) / (high - low) * 998f).roundToInt().toFloat()
             }
         }
         val backOrder = placedOrders.values.min() - 1f

@@ -1068,6 +1068,7 @@ object RigBuilder {
 		val meshConfig = stageConfig(config)
 		val reservedDrawableIds = stableDrawableIds.values.toMutableSet()
 		val orderedLayers = orderMouthLayers(baseLayers.sortedBy { it.source.order })
+		val orderStep = generatedOrderStep(config.drawOrderStep, orderedLayers.size)
 		// A passenger keys a toggle or switch only while the resolved layers still need its parameter.
 		val knownParameters = if (!v2) emptySet() else (StandardParameters.all + customParams).mapTo(HashSet()) { it.id }
 		val ghostIds = LinkedHashSet<DrawableId>()
@@ -1120,10 +1121,11 @@ object RigBuilder {
 				geometryGrid = parts.geometryGrid,
 				channelGrids = channelGrids,
 				// Cubism Editor stores draw order as an integer. Keeping this integral also makes
-				// fresh CMO3 conversion lossless instead of reporting one advisory per drawable.
+				// fresh CMO3 conversion lossless instead of reporting one advisory per drawable; the gap
+				// between neighbours leaves whole numbers to put a mesh between two later.
 				drawOrder = (config.drawOrderOverrides[layer.source.id.raw]
 					?: config.drawOrderOverrides[id.raw]
-					?: (orderedLayers.size - drawIndex).toFloat()).coerceIn(0f, 1000f),
+					?: ((orderedLayers.size - drawIndex) * orderStep).toFloat()).coerceIn(0f, 1000f),
 				opacity = layer.source.opacity.coerceIn(0f, 1f),
 				isVisible = layerVisibility(config, layer.source.id.raw, layer.source.visible),
 				// Unbound: UvBinding names the page with the uvs.
@@ -1224,7 +1226,7 @@ object RigBuilder {
                     val frontOrder = masked.filter { it.id == owner || owner in it.maskedBy }
                         .maxOfOrNull { it.drawOrder } ?: drawable.drawOrder
                     drawable.copy(drawOrder = (config.drawOrderOverrides[classifiedByDrawable.getValue(drawable.id).source.id.raw]
-                        ?: config.drawOrderOverrides[drawable.id.raw] ?: (frontOrder + 1f)).coerceIn(0f, 1000f))
+                        ?: config.drawOrderOverrides[drawable.id.raw] ?: (frontOrder + (orderStep / 2).coerceAtLeast(1))).coerceIn(0f, 1000f))
                 }
             }
 
@@ -1419,6 +1421,13 @@ object RigBuilder {
 		/** Version 2 parts and what is parked with them; null without v2 records. */
 		val primitives: List<Any?>? = null,
 	)
+
+	/**
+	 * The gap between generated layers' orders: [step], or the largest of 5, 2 and 1 under it that fits [count]
+	 * layers within Cubism's 0..1000.
+	 */
+	internal fun generatedOrderStep(step: Int, count: Int): Int =
+		(listOf(step) + listOf(5, 2).filter { it < step }).firstOrNull { count * it <= 1000 } ?: 1
 
 	/** A key part compared by identity: a stage output that later stages reuse while it is the same instance. */
 	private class Identity(val value: Any, val extra: Any? = null) {

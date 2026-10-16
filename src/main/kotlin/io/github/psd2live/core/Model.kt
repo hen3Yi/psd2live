@@ -178,6 +178,12 @@ data class MeshSettings(
 	val wrap: Float = 0f,
 )
 
+/** [PipelineConfig.drawOrderStep] for a new document. */
+const val DRAW_ORDER_STEP = 10
+
+/** [PipelineConfig.drawOrderStep] of a document saved before the setting existed. */
+const val LEGACY_DRAW_ORDER_STEP = 1
+
 data class PipelineConfig(
 	val atlasSize: Int = 4096,
 	val textureUpscale: TextureUpscaleConfig = TextureUpscaleConfig(),
@@ -263,6 +269,12 @@ data class PipelineConfig(
 	val parentOverrides: Map<String, String?> = emptyMap(),
 	/** Manual draw order overrides (layerId or drawableId -> drawOrder within 0..1000). */
 	val drawOrderOverrides: Map<String, Float> = emptyMap(),
+	/**
+	 * The gap between neighbouring generated layers' draw orders, as a rigger leaves one in Cubism so that a mesh
+	 * can later go between two without renumbering the rest. A document saved before the setting keeps 1, the
+	 * consecutive numbering its overrides and keyed orders were authored against.
+	 */
+	val drawOrderStep: Int = DRAW_ORDER_STEP,
 	/** Durable Agent/editor changes replayed over every generated base rig and retained on export. */
 	val rigEdits: RigEditOverlay = RigEditOverlay.Empty,
 	/** Optional immutable generation input; textures still come from the current source artwork. */

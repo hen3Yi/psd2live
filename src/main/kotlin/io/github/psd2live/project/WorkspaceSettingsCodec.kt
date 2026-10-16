@@ -137,6 +137,7 @@ internal object WorkspaceSettingsCodec {
             }
         }
         putJsonObject("drawOrderOverrides") { config.drawOrderOverrides.toSortedMap().forEach { (k, v) -> put(k, v) } }
+        put("drawOrderStep", config.drawOrderStep)
         put("texturePadding", config.texturePadding)
         put("alphaThreshold", config.alphaThreshold)
         put("headStrength", config.headTurnStrength)
@@ -187,6 +188,9 @@ internal object WorkspaceSettingsCodec {
         atlasSize = value["atlasSize"]?.jsonPrimitive?.intOrNull ?: base.atlasSize,
         textureUpscale = value["textureUpscale"]?.let { Json.decodeFromJsonElement<io.github.psd2live.core.TextureUpscaleConfig>(it) } ?: base.textureUpscale,
         drawOrderOverrides = value["drawOrderOverrides"]?.jsonObject?.mapValues { it.value.jsonPrimitive.float.coerceIn(0f, 1000f) } ?: base.drawOrderOverrides,
+        // A settings payload without a step is a document generated with consecutive orders, whose authored orders assume them.
+        drawOrderStep = value["drawOrderStep"]?.jsonPrimitive?.intOrNull?.coerceIn(1, 100)
+            ?: if ("atlasSize" in value) io.github.psd2live.core.LEGACY_DRAW_ORDER_STEP else base.drawOrderStep,
         texturePadding = value["texturePadding"]?.jsonPrimitive?.intOrNull ?: base.texturePadding,
         meshSpacing = value["meshSpacing"]?.jsonPrimitive?.intOrNull ?: base.meshSpacing,
         // v1 settings written before units measured every length in source pixels.

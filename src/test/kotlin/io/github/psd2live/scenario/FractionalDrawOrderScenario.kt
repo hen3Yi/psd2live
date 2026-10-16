@@ -13,7 +13,8 @@ import kotlin.test.Test
 
 /**
  * A fractional draw order (the ruler's or the inspector's) reaches the cmo3 as whole numbers in the same stacking,
- * on a generated lip outline that carries deform paths as well as on a plain mesh (issue #39).
+ * on a generated lip outline that carries deform paths as well as on a plain mesh (issue #39), for a document that
+ * holds them from before the tools refused fractions.
  */
 class FractionalDrawOrderScenario {
 	@TempDir lateinit var temp: Path
@@ -22,9 +23,10 @@ class FractionalDrawOrderScenario {
 		importPsd(Characters.mouthPsd(temp), PipelineConfig(atlasSize = 256, generatePhysics = false, exportMoc3 = false, mouthOutlineEnabled = true))
 		val lip = puppet.drawables.first { "_lip_" in it.id.raw && puppet.deformPaths.any { path -> path.drawableId == it.id } }.id.raw
 		val face = puppet.drawables.first { it.id.raw != lip && puppet.drawables.none { other -> other.maskedBy.contains(it.id) } && "_lip_" !in it.id.raw }.id.raw
-		edit("slip the lip outline between orders", "layer_draw_order", req("target" to "mesh:$lip", "order" to 2.5))
-		edit("give another mesh a fraction", "rig_edit_structure", req("edits" to listOf(
-			mapOf("action" to "static", "kind" to "mesh", "id" to face, "draw_order" to 0.5))))
+		// The tools refuse a fraction now; a document authored before still holds them.
+		edit("slip the lip outline between orders", "rig_edit_structure", req("edits" to listOf(
+			mapOf("action" to "static", "kind" to "mesh", "id" to lip, "draw_order" to 25.5),
+			mapOf("action" to "static", "kind" to "mesh", "id" to face, "draw_order" to 5.5))))
 
 		val cmo3 = export("cmo3").single { it.toString().endsWith(".cmo3") }
 		val sources = Cmo3GraphIndex(Cmo3.read(Files.readAllBytes(cmo3)).root as CModelSource).drawableSources
@@ -35,5 +37,28 @@ class FractionalDrawOrderScenario {
 		val stacking = puppet.drawables.sortedBy { it.drawOrder }.map { it.id.raw }
 		val exported = puppet.drawables.map { it.id.raw }.sortedBy { written.getValue(it).first() }
 		expect("stacking", stacking == exported) { "the cmo3 stacks $exported, the editor $stacking (${written.mapValues { it.value.distinct() }})" }
+	}
+}
+
+/** Generated orders leave room between neighbours; a document saved before keeps its consecutive numbering. */
+class DrawOrderSpacingScenario {
+	@TempDir lateinit var temp: Path
+
+	@Test fun generatedLayersAreTenApartWithTheLipOutlineInTheGap() = Studio.run(temp, checks = emptySet()) {
+		importPsd(Characters.mouthPsd(temp), PipelineConfig(atlasSize = 256, generatePhysics = false, exportMoc3 = false, mouthOutlineEnabled = true))
+		val orders = puppet.drawables.associate { it.id.raw to it.drawOrder }
+		val layers = orders.filterKeys { "_lip_" !in it }.values.sorted()
+		expect("spacing", layers == listOf(10f, 20f)) { "generated orders $orders" }
+		val lips = orders.filterKeys { "_lip_" in it }.values
+		expect("lips", lips.isNotEmpty() && lips.all { it == 25f }) { "lip outlines at $lips, layers at $layers" }
+		refused("a fraction is refused", "layer_draw_order", req("target" to "mesh:${puppet.drawables.first().id.raw}", "order" to 15.5))
+		edit("a whole number in the gap", "layer_draw_order", req("target" to "mesh:${puppet.drawables.first().id.raw}", "order" to 15))
+	}
+
+	@Test fun aDocumentWithoutTheSettingKeepsConsecutiveOrders() {
+		val legacy = io.github.psd2live.project.WorkspaceSettingsCodec.encode(PipelineConfig()).let { kotlinx.serialization.json.JsonObject(it - "drawOrderStep") }
+		kotlin.test.assertEquals(1, io.github.psd2live.project.WorkspaceSettingsCodec.decode(legacy).drawOrderStep)
+		kotlin.test.assertEquals(10, io.github.psd2live.project.WorkspaceSettingsCodec.decode(io.github.psd2live.project.WorkspaceSettingsCodec.encode(PipelineConfig())).drawOrderStep)
+		kotlin.test.assertEquals(listOf(10, 10, 5, 2, 1), listOf(1, 100, 101, 400, 900).map { io.github.psd2live.core.RigBuilder.generatedOrderStep(10, it) })
 	}
 }

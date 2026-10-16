@@ -327,11 +327,11 @@ internal fun registerAuthoringOperations(registry: WorkspaceOperationRegistry, w
     }
 
     val channels = objectSchema(buildJsonObject {
-        put("opacity", number()); put("drawOrder", number()); put("multiplyColor", vector(3)); put("screenColor", vector(3))
+        put("opacity", number()); put("drawOrder", integer(0, 1000)); put("multiplyColor", vector(3)); put("screenColor", vector(3))
         put("glueIntensity", number()); put("flipX", boolean()); put("flipY", boolean())
     })
     val formBase = buildJsonObject { put("target", string()); put("key", key) }
-    registerJsonOperation("form", "Author key collections atomically. seed captures interpolated geometry without changing other keys. copy transfers selected channels (omit for all) from an explicit source key. set writes scalar/color channels or a rotation form, never mesh point arrays. Keys name only the destination object's axes, not the viewing pose.",
+    registerJsonOperation("form", "Author key collections atomically. seed captures interpolated geometry without changing other keys. copy transfers selected channels (omit for all) from an explicit source key. set writes scalar/color channels or a rotation form, never mesh point arrays. Keys name only the destination object's axes, not the viewing pose. A keyed drawOrder channel: " + WorkspaceDrawOrderSchemas.GUIDE,
         buildJsonObject { put("state", string()); put("changes", arraySchema(oneOf(listOf(
             variant("op", "seed", formBase, listOf("target", "key")),
             variant("op", "copy", JsonObject(formBase + buildJsonObject { put("from", key); put("destination", string()); put("channels", arraySchema(string(), 1, 8)) }), listOf("target", "from", "key")),
@@ -538,7 +538,7 @@ internal fun registerAuthoringOperations(registry: WorkspaceOperationRegistry, w
         put("parent_id", buildJsonObject {}); put("before_id", buildJsonObject {})
         put("before_kind", choices("mesh", "part", "parameter", "param_group"))
         put("part_id", buildJsonObject {}); put("space", choices("local"))
-        put("opacity", number()); put("draw_order", number())
+        put("opacity", number()); put("draw_order", integer(0, 1000))
         put("multiply_color", vector(3)); put("screen_color", vector(3))
         put("blend_mode", string()); put("masked_by", arraySchema(string(), 0, 64))
         put("invert_mask", boolean()); put("culling", boolean())
@@ -546,7 +546,7 @@ internal fun registerAuthoringOperations(registry: WorkspaceOperationRegistry, w
         put("partner_id", string()); put("linked", boolean()); put("open", boolean())
         put("label_type", string()); put("color", integer(Int.MIN_VALUE))
     }, listOf("action", "kind", "id"))
-    registerJsonOperation("structure", "Edit static object properties (opacity, draw order, colors, blend mode, clipping masks masked_by/invert_mask, culling), delete deformers, assign a deformer Part, or organize parameter folders and 2D links. Edits are ordered and use the same persistent structure journal as the UI. Parameter definitions use parameter instead.",
+    registerJsonOperation("structure", "Edit static object properties (opacity, draw order, colors, blend mode, clipping masks masked_by/invert_mask, culling), delete deformers, assign a deformer Part, or organize parameter folders and 2D links. Edits are ordered and use the same persistent structure journal as the UI. Parameter definitions use parameter instead. " + WorkspaceDrawOrderSchemas.GUIDE,
         buildJsonObject { put("state", string()); put("edits", arraySchema(structureEdit, 1, 128)) }, listOf("state", "edits"), true) { a ->
         val edits = a.getValue("edits").jsonArray
         require(edits.none { edit ->

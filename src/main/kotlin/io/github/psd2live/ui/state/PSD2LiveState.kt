@@ -534,6 +534,8 @@ data class PSD2LiveState(
 	val exportIncludeUserData: Boolean = true,
 	val exportIncludeDisplayInfo: Boolean = true,
 	val exportPixelsPerUnit: Float? = null,
+	/** [io.github.psd2live.core.PipelineConfig.drawOrderStep] of the open document. */
+	val drawOrderStep: Int = io.github.psd2live.core.DRAW_ORDER_STEP,
 	val exportOptionsExpanded: Boolean = true,
 	val motionSubExpanded: Boolean = false,
 	val physicsSubExpanded: Boolean = false,
@@ -784,6 +786,7 @@ data class PSD2LiveState(
 			deletedLayerIds = deletedLayerIds,
 			parentOverrides = parentOverrides,
 			drawOrderOverrides = drawOrderOverrides,
+			drawOrderStep = drawOrderStep,
 			rigEdits = rigEdits,
 			generationSource = generationSource,
 			meshSource = meshSource,

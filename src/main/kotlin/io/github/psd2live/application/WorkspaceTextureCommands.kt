@@ -31,7 +31,8 @@ internal class WorkspaceTextureCommands(private val runtime: WorkspaceRuntime<Ri
         else edit
         val summary = summary(resolved)
         val result = commands.executeCandidate(projectId, state, summary, author, taskId, mutation = { document, model ->
-            WorkspaceTextureEdits.apply(document, model, resolved) { context.ensureActive() }.also {
+            WorkspaceMaterialLinks.reconcile(document,
+                WorkspaceTextureEdits.apply(document, model, resolved) { context.ensureActive() }).also {
                 context.ensureActive(); progress?.progress(0.3f, "Rebuilding ${edit.operation}")
             }
         }, beforeCommit = { captured, document, model ->

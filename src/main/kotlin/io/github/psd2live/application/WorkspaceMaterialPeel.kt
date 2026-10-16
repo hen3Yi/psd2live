@@ -9,14 +9,15 @@ import kotlinx.serialization.json.*
 import org.umamo.format.art.LayerRaster
 import kotlin.math.abs
 import kotlin.math.cbrt
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sqrt
 
 /**
- * Splitting a part off an image with a generated version that has it removed ("peeling"): the part is the original's
- * pixels where the two differ, and the image under it is the original with only that area taken from the generated
+ * Splitting a part off an image with a generated version that has it removed ("peeling"): the part covers where the
+ * two differ, and the image under it is the original with only that area taken from the generated
  * version. Generators redraw the whole image slightly, so everything outside the part keeps the original's pixels
  * and putting the part back over the image under it gives the original again. Both results are new items placed
  * where the original sits, so each step of a peel works on the image the step before left.
@@ -104,9 +105,11 @@ internal object WorkspaceMaterialPeel {
     }
 
     /**
-     * [before] split by [after] (the same image with a part removed): the part's alpha comes from where the two differ
+     * [before] split by [after] (the same image with a part removed): the part's initial alpha comes from where the two differ
      * by more than the threshold, kept to [region] (white or opaque where the part may be) when given; the image under
      * it is [before] with the part's area taken from [after], colour-matched to the band of untouched pixels around it.
+     * Foreground colour and coverage, and base alpha, are solved so normal source-over restores [before], within byte
+     * rounding. A translucent original can require a more transparent base; an opaque reveal cannot sit under it unchanged.
      */
     fun peel(before: LayerRaster, after: LayerRaster, region: LayerRaster?, options: Options, checkpoint: () -> Unit = {}): Result {
         val w = before.width; val h = before.height; val n = w * h
@@ -157,18 +160,37 @@ internal object WorkspaceMaterialPeel {
         val source = matched ?: r
         val part = ByteArray(n * 4); val base = ByteArray(n * 4)
         for (i in 0 until n) {
+            if (i % 65536 == 0) checkpoint()
             val o = i * 4; val a = closed[i]
-            val ab = (b[o + 3].toInt() and 255).toFloat()
-            val pa = (ab * a + 0.5f).toInt()
-            if (pa > 0) { part[o] = b[o]; part[o + 1] = b[o + 1]; part[o + 2] = b[o + 2]; part[o + 3] = pa.toByte() }
-            val ar = (source[o + 3].toInt() and 255).toFloat()
-            val outA = ab * (1f - a) + ar * a
-            if (outA < 0.5f) continue
-            for (c in 0..2) {
-                val v = ((b[o + c].toInt() and 255) * ab * (1f - a) + (source[o + c].toInt() and 255) * ar * a) / outA
-                base[o + c] = (v + 0.5f).toInt().coerceIn(0, 255).toByte()
+            val ab = (b[o + 3].toInt() and 255).toDouble()
+            if (a <= 0f || ab == 0.0) {
+                b.copyInto(base, o, o, o + 4)
+                continue
             }
-            base[o + 3] = (outA + 0.5f).toInt().coerceIn(0, 255).toByte()
+            val ar = (source[o + 3].toInt() and 255).toDouble()
+            val outA = ab * (1f - a) + ar * a
+            var needed = ab * a
+            for (c in 0..2) {
+                val original = b[o + c].toInt() and 255
+                val v = if (outA > 0.0)
+                    (original * ab * (1f - a) + (source[o + c].toInt() and 255) * ar * a) / outA else 0.0
+                val under = (v + 0.5).toInt().coerceIn(0, 255)
+                base[o + c] = under.toByte()
+                // Enough foreground to keep its solved colour in [0, 255], even at high-contrast edges.
+                if (under > original) needed = max(needed, ab * (under - original) / under)
+                if (under < original) needed = max(needed, ab * (original - under) / (255 - under))
+            }
+            val pa = ceil(needed).toInt().coerceIn(1, ab.toInt())
+            val ba = (if (pa == 255) outA else (ab - pa) * 255.0 / (255 - pa))
+                .let { (it + 0.5).toInt().coerceIn(0, 255) }
+            base[o + 3] = ba.toByte()
+            part[o + 3] = pa.toByte()
+            for (c in 0..2) {
+                val original = b[o + c].toInt() and 255
+                val under = base[o + c].toInt() and 255
+                val v = (original * ab - under * ba * (1.0 - pa / 255.0)) / pa
+                part[o + c] = (v + 0.5).toInt().coerceIn(0, 255).toByte()
+            }
         }
         return Result(LayerRaster(w, h, part), LayerRaster(w, h, base), coverage, matched != null)
     }

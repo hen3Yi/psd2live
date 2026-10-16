@@ -474,7 +474,12 @@ class Client:
             data, images = self._tool("workspace_call", arguments)
         payload = data.get("data", data)
         while isinstance(payload, dict) and str(payload.get("id", "")).startswith("job-") and "terminal" in payload and not payload["terminal"]:
-            data, more = self._tool("job_wait", {"request": {"id": payload["id"], "timeout_ms": 30000}})
+            arguments = {"request": {"id": payload["id"], "timeout_ms": 30000}}
+            tool = "job_wait"
+            if tool not in self.tools():
+                tool = "workspace_call"
+                arguments["operation"] = "job_wait"
+            data, more = self._tool(tool, arguments)
             images += more
             payload = data.get("data", data)
         if isinstance(payload, dict) and payload.get("terminal") and str(payload.get("id", "")).startswith("job-"):

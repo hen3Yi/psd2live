@@ -1971,7 +1971,7 @@ internal class CanvasEditor(
     }
 
     fun clearCurrentLayerPaint() {
-        val session = ensurePaintSession() ?: return
+        val session = paintSession ?: ensurePaintSession() ?: return
         session.clear(tr("editor.paint.strokeClear"))
     }
 

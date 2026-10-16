@@ -83,6 +83,28 @@ class EditorAndAgentScenario {
 
 	private fun Editor.state(): String = workspace.snapshot().state!!
 
+	@Test fun clearingTheMaterialEditorKeepsItsSessionAndUndoHistory() = editor {
+		workspace.importPsd(Characters.figurePsd(temp).toString(), true)
+		consistent("imported")
+		withContext(Dispatchers.Main) {
+			val layers = vm.state.value.previewModel!!.analysis.source.layers
+			vm.selectLayer(layers.first().id.raw)
+			val materialId = assertNotNull(workspace.captureQueries().layoutState()).layout.layerMaterials.getValue(layers.last().id.raw)
+			val canvas = io.github.psd2live.ui.CanvasEditor(vm, vm.state.value.activeWorkspace.id, "material-window")
+			canvas.hierarchyMode = io.github.psd2live.ui.EditHierarchyMode.PAINT
+			val session = assertNotNull(canvas.startPaintSession("material:$materialId", forceReload = true))
+			val original = session.workingImage.getRGB(0, 0, session.docWidth, session.docHeight, null, 0, session.docWidth)
+			canvas.clearCurrentLayerPaint()
+			assertSame(session, canvas.paintSession)
+			assertEquals("material:$materialId", session.layerId)
+			assertTrue(session.isDirty)
+			assertTrue(session.workingImage.getRGB(0, 0, session.docWidth, session.docHeight, null, 0, session.docWidth).all { it ushr 24 == 0 })
+			canvas.undoPaint()
+			assertContentEquals(original, session.workingImage.getRGB(0, 0, session.docWidth, session.docHeight, null, 0, session.docWidth))
+			canvas.closePaintSession()
+		}
+	}
+
 	@Test fun presetPatchesKeepTheCommittedJournalEvenWithStalePreviewMetadata() = editor {
 		workspace.importPsd(Characters.mouthPsd(temp).toString(), true)
 		consistent("imported mouth")

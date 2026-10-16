@@ -32,6 +32,9 @@ jobs:
       - name: Test ComfyUI workflow builders (no server)
         run: python -m unittest discover -s tools/comfy -p 'test_*.py'
 
+      - name: Test MCP script client (no server)
+        run: python -m unittest discover -s tools -p 'test_*.py'
+
       - name: Set up JDK 21 (Temurin)
         uses: actions/setup-java@v4
         with:

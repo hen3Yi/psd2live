@@ -101,8 +101,7 @@ internal object WorkspaceDocumentEdits {
                 request["reset"]?.jsonPrimitive?.boolean ?: false)
             "layer_classify" -> {
                 require(listOf("type", "role", "side", "parameter", "switch_id").any { it in request }) { "Provide at least one classification field" }
-                val current = model.analysis.layers.firstOrNull { it.source.id.raw == request.text("layer_id") }?.semantic
-                    ?: throw IllegalArgumentException("Layer not found: ${request.text("layer_id")}")
+                val current = WorkspaceLayoutEdits.classification(document, model, request.text("layer_id"))
                 classify(document, model, request.text("layer_id"), LayerClassificationOverride(
                     request["type"]?.jsonPrimitive?.content?.uppercase()?.let(LayerType::valueOf) ?: current.type,
                     request["role"]?.jsonPrimitive?.content?.uppercase()?.let(SemanticTag::valueOf) ?: current.tag,

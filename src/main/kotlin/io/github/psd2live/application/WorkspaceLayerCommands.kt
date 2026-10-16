@@ -59,6 +59,8 @@ internal object WorkspaceLayerEdits {
             layerVisibility = document.layerVisibility - id, layerOverrides = document.layerOverrides - id,
             parentOverrides = document.parentOverrides - id, meshOverrides = document.meshOverrides - id,
             textureOverrides = document.textureOverrides - id, deletedLayerIds = document.deletedLayerIds - id,
+            // Pending layers are temporarily absent while this edits the generated base.
+            layout = document.layout.retaining(remaining.mapTo(HashSet()) { it.id.raw } + document.layout.generation.pendingLayerIds - id),
             rigEdits = document.rigEdits.copy(splitDrawableIds = document.rigEdits.splitDrawableIds - id,
                 assetLayers = document.rigEdits.assetLayers - id, calibrationLayerIds = document.rigEdits.calibrationLayerIds - id))
         if (meshes.isEmpty()) return candidate

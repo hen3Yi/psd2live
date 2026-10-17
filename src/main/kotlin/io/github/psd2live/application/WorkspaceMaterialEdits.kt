@@ -25,6 +25,8 @@ internal object WorkspaceMaterialStaging {
             entry.placement?.let { put("placement", "${it.left},${it.top},${it.width},${it.height} on ${entry.placementWidth}x${entry.placementHeight}") }
             entry.svg?.let { put("svg", WorkspaceRevisions.sha256(it.encodeToByteArray())) }
             put("origin", entry.origin); put("opacity", entry.opacity); put("visible", entry.visible)
+            if (entry.tags.isNotEmpty()) put("tags", JsonArray(entry.tags.map(::JsonPrimitive)))
+            if (entry.reference) put("reference", true)
         } }))
         synchronized(staged) { staged[token] = entries }
         return token
@@ -51,7 +53,8 @@ internal object WorkspaceMaterialEdits {
     const val UNLINK = "material_unlink"
     const val REFERENCE = "layout_set_reference"
     const val CROP = "material_crop"
-    val supported = setOf(ADD, FOLDER, MOVE, RENAME, DELETE, TAG, RESOLUTION, PLACE, UNLINK, REFERENCE, CROP) + WorkspaceMaterialPixels.supported +
+    const val MARK_REFERENCE = "material_mark_reference"
+    val supported = setOf(ADD, FOLDER, MOVE, RENAME, DELETE, TAG, RESOLUTION, PLACE, UNLINK, REFERENCE, CROP, MARK_REFERENCE) + WorkspaceMaterialPixels.supported +
         WorkspaceDrawingEdits.supported + WorkspaceMaterialPeel.supported
     private const val MAX_NAME = 128
 
@@ -75,8 +78,9 @@ internal object WorkspaceMaterialEdits {
             RESOLUTION -> resolution(document, model, text("id"), request.getValue("width").jsonPrimitive.int, request.getValue("height").jsonPrimitive.int)
             PLACE -> place(document, model, text("material_id"), request["rect"]?.jsonObject?.let(::rect),
                 request["at"]?.jsonArray?.map { it.jsonPrimitive.float }?.also { require(it.size == 2) { "at takes [x, y]" } },
-                optional("layer_id"))
+                optional("layer_id"), request["reference"]?.jsonPrimitive?.boolean)
             REFERENCE -> reference(document, request)
+            MARK_REFERENCE -> markReference(document, strings("ids").orEmpty(), request.getValue("reference").jsonPrimitive.boolean)
             CROP -> crop(document, text("id"), request["rect"]?.jsonObject?.let(::rect), request["canvas_rect"]?.jsonObject?.let(::rect),
                 optional("name"), optional("new_id"), if ("folder_id" in request) optional("folder_id") else null, "folder_id" in request)
             else -> throw IllegalArgumentException("Not a material edit: ${operation.operation}")
@@ -128,23 +132,24 @@ internal object WorkspaceMaterialEdits {
             val raster = entry.svg?.let { WorkspaceVectorDrawing.render(it, document.layout.drawingKit, entry.raster.width, entry.raster.height) } ?: entry.raster
             items += MaterialItem(id, requireName(entry.name), folder, entry.kind, raster, entry.placement, entry.svg,
                 origin = entry.origin, opacity = entry.opacity, visible = entry.visible,
-                placementWidth = entry.placementWidth, placementHeight = entry.placementHeight)
+                placementWidth = entry.placementWidth, placementHeight = entry.placementHeight, tags = entry.tags, reference = entry.reference)
         }
         library = MaterialLibrary(folders, items)
         return document.withLibrary(library)
     }
 
     /**
-     * [document] with its source layers added as materials in a folder named after [fileName] (its groups as
-     * subfolders), each layer linked to its own material ([WorkspaceLayout.layerMaterials]). The materials share the
-     * layers' pixels.
+     * [document] with its source layers added as materials in a folder named [folderName], after [fileName] unless
+     * given (its groups as subfolders), each layer linked to its own material ([WorkspaceLayout.layerMaterials]). The
+     * materials share the layers' pixels.
      */
-    fun addLinked(document: WorkspaceDocument, fileName: String): WorkspaceDocument {
+    fun addLinked(document: WorkspaceDocument, fileName: String,
+                  folderName: String = fileName.substringBeforeLast('.').ifEmpty { fileName }): WorkspaceDocument {
         val layers = document.source.layers.filter { it.raster.width > 0 && it.raster.height > 0 }
         if (layers.isEmpty()) return document
-        val folderName = fileName.substringBeforeLast('.').ifEmpty { fileName }
+        // Entries come in the layers' order; a reference layer's material places as a reference again.
         val entries = WorkspaceMaterialFiles.layered(document.source, listOf(WorkspaceMaterialFiles.name(folderName, "source")), fileName)
-            .map { it.copy(fileFolder = 0) }
+            .mapIndexed { index, entry -> entry.copy(fileFolder = 0, reference = layers.getOrNull(index)?.id?.raw in document.layout.referenceLayerIds) }
         val before = document.layout.materials.items.size
         val added = add(document, entries, null)
         val items = added.layout.materials.items.drop(before)
@@ -230,6 +235,21 @@ internal object WorkspaceMaterialEdits {
             library.items.map { if (it.id in targets) it.copy(tags = next(it.tags)) else it }))
     }
 
+    /** Items [ids] - and every item in folders among them - placed as reference layers by default ([reference] true) or not. */
+    fun markReference(document: WorkspaceDocument, ids: List<String>, reference: Boolean): WorkspaceDocument {
+        require(ids.size in 1..1024 && ids.distinct().size == ids.size) { "Give 1..1024 distinct ids" }
+        val library = document.layout.materials
+        val folders = HashSet<String>(); val items = HashSet<String>()
+        for (id in ids) when {
+            library.folder(id) != null -> folders += library.subtree(id)
+            library.item(id) != null -> items += id
+            else -> throw IllegalArgumentException("Material not found: $id")
+        }
+        return document.withLibrary(library.copy(items = library.items.map {
+            if ((it.id in items || it.folderId in folders) && it.reference != reference) it.copy(reference = reference) else it
+        }))
+    }
+
     /**
      * Vector item [id] rendered at [width] x [height] pixels; every layer showing it takes the new raster over its
      * unchanged rectangle, as an image replacement does.
@@ -249,10 +269,11 @@ internal object WorkspaceMaterialEdits {
      * Material [materialId] placed on the canvas as new source layers: an item as one layer, a folder as one layer per
      * item in it, each folder becoming a source group. The default size is the item's own placement (a PSD layer's
      * place), else one material pixel per canvas unit fitted into the canvas; [rect] gives an item's rectangle, [at]
-     * centres the placement there. The tags of the item and of the folders above it become the layer's tags.
+     * centres the placement there. The tags of the item and of the folders above it become the layer's tags. [reference]
+     * places every layer as a reference layer, or none; null follows each item ([MaterialItem.reference]).
      */
     fun place(document: WorkspaceDocument, model: RigPreviewModel, materialId: String, rect: LayerCanvasRect?, at: List<Float>?,
-              layerId: String?): WorkspaceDocument {
+              layerId: String?, reference: Boolean? = null): WorkspaceDocument {
         val library = document.layout.materials
         val single = library.item(materialId)
         val folder = library.folder(materialId)
@@ -302,6 +323,7 @@ internal object WorkspaceMaterialEdits {
         val added = ArrayList<SourceLayer>()
         val links = LinkedHashMap<String, String>()
         val tags = LinkedHashMap<String, Set<String>>()
+        val references = LinkedHashSet<String>()
         for (item in items) {
             val id = (if (single != null) layerId else null)?.also {
                 require(it !in existing && it.matches(Regex("[A-Za-z0-9_.:#-]{1,96}"))) { "layer_id is taken or invalid: $it" }
@@ -324,6 +346,7 @@ internal object WorkspaceMaterialEdits {
                 item.opacity, false, LayerBlend.Normal, ChannelMask.ALL, item.raster, null, null, false,
                 rect = place.takeUnless { it == LayerCanvasRect.of(bounds) })
             links[id] = item.id
+            if (reference ?: item.reference) references += id
             tags[id] = library.ancestry(item.folderId).flatMapTo(LinkedHashSet()) { it.tags } + item.tags
         }
         // Placed last, they paint over every layer already there.
@@ -331,7 +354,9 @@ internal object WorkspaceMaterialEdits {
         val generation = document.layout.generation
         var next = document.copy(source = art, layerVisibility = document.layerVisibility,
             layout = document.layout.copy(layerMaterials = document.layout.layerMaterials + links,
-                generation = if (generation.generated) generation.copy(pendingLayerIds = generation.pendingLayerIds + links.keys) else generation))
+                // A reference layer never waits for a generation: none reads it.
+                generation = if (generation.generated) generation.copy(pendingLayerIds = generation.pendingLayerIds + (links.keys - references)) else generation,
+                referenceLayerIds = document.layout.referenceLayerIds + references))
         // The tags the item and its folders carry: semantic words classify the layer, the rest stay as the user's tags.
         for ((id, set) in tags) {
             if (set.isEmpty()) continue

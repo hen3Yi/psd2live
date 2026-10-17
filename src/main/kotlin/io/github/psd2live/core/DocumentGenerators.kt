@@ -123,6 +123,26 @@ internal object DocumentGenerators {
 			nodes += GeneratorNode(simulationId(sim), setOf("rig:authored", "document:${simulationId(sim)}"), writes)
 			keyforms += writes.filter { it.startsWith("keyform:") }; parameters += writes.filter { it.startsWith("parameter:") }
 		}
+		for (effect in overlay.interiorEffects) {
+			val desired =
+				effect.parameterIds.map { "parameter:$it" } +
+					effect.axes.map { keyform("mesh", effect.target, it) }
+			require(desired.none { it in owned }) {
+				"Interior effect output has another generator owner: ${effect.id}"
+			}
+			val writes = claim(desired)
+			nodes +=
+				GeneratorNode(
+					"interiorEffect:" + effect.id,
+					setOf("rig:authored", "document:interiorEffect:" + effect.id) +
+						effect.sources
+							.filterNot { it.id.raw in effect.created }
+							.map { "parameter:${it.id.raw}" },
+					writes,
+				)
+			keyforms += writes.filter { it.startsWith("keyform:") }
+			parameters += writes.filter { it.startsWith("parameter:") }
+		}
 		nodes += GeneratorNode(OVERRIDES, keyforms + "rig:authored" + "document:overrides" + "document:generators", claim(listOf("rig:final")))
 		nodes += GeneratorNode(PHYSICS, parameters + "rig:final" + "document:physics" + "document:skeleton", claim(listOf("physics")))
 		nodes += GeneratorNode(MOTIONS, setOf("rig:final", "physics", "document:motions", "document:skeleton"), claim(listOf("motions")))
@@ -151,6 +171,22 @@ internal object DocumentGenerators {
 			swings[node.id]?.let { swing ->
 				current = GeneratorReuse.run(node.id, swing, current, swingReads(current, swing)) { SwingGenerator.apply(it, listOf(swing)) }
 			}
+			overlay.interiorEffects
+				.firstOrNull { node.id == "interiorEffect:" + it.id }
+				?.let { effect ->
+					val drawable = current.drawables.singleOrNull { it.id.raw == effect.target }
+					val reads =
+						GeneratorReuse.Reads(
+							current.parameters,
+							current.parameterTree,
+							listOf(current.sources, current.atlas),
+							emptySet(),
+							emptyList(),
+							setOf(effect.target),
+							listOf(drawable),
+						)
+					current = GeneratorReuse.run(node.id, effect, current, reads) { effect.apply(it) }
+				}
 			sims[node.id]?.let { sim ->
 				current = GeneratorReuse.run(node.id, sim, current, simulationReads(current, sim)) { SimGenerator.apply(it, listOf(sim)) }
 			}
@@ -190,7 +226,8 @@ internal object DocumentGenerators {
 	fun changed(before: RigEditOverlay, after: RigEditOverlay): Set<String> = buildSet {
 		if (before.skeleton != after.skeleton) add("document:skeleton")
 		// Adding or removing a swing or simulation changes which keyforms are generated at all.
-		if (before.swingEdits.map(::swingId) + before.simEdits.map(::simulationId) != after.swingEdits.map(::swingId) + after.simEdits.map(::simulationId))
+		if (before.swingEdits.map(::swingId) + before.simEdits.map(::simulationId) + before.interiorEffects.map { it.id } !=
+			after.swingEdits.map(::swingId) + after.simEdits.map(::simulationId) + after.interiorEffects.map { it.id })
 			add("document:generators")
 		val journal = { overlay: RigEditOverlay -> overlay.authoringJournal.filterNot { GeneratedOverrides.isOverride(it) } }
 		if (journal(before) != journal(after) || before.parameterEdits != after.parameterEdits || before.structureEdits != after.structureEdits ||
@@ -200,6 +237,10 @@ internal object DocumentGenerators {
 		if (before.authoringJournal.filter(ArtPrimitiveV2::isV2) != after.authoringJournal.filter(ArtPrimitiveV2::isV2)) add(PRIMITIVES)
 		if (before.authoringJournal.filter(GeneratedOverrides::isOverride) != after.authoringJournal.filter(GeneratedOverrides::isOverride))
 			add("document:overrides")
+		val effectsBefore = before.interiorEffects.associateBy { "interiorEffect:" + it.id }
+		val effectsAfter = after.interiorEffects.associateBy { "interiorEffect:" + it.id }
+		for (id in effectsBefore.keys + effectsAfter.keys) if (effectsBefore[id] != effectsAfter[id])
+			add("document:$id")
 		val swingsBefore = before.swingEdits.associateBy(::swingId); val swingsAfter = after.swingEdits.associateBy(::swingId)
 		for (id in swingsBefore.keys + swingsAfter.keys) if (swingsBefore[id] != swingsAfter[id]) add("document:$id")
 		val simsBefore = before.simEdits.associateBy(::simulationId); val simsAfter = after.simEdits.associateBy(::simulationId)

@@ -29,9 +29,6 @@ jobs:
       - name: Test pinned example download tooling (no downloads)
         run: python -m unittest discover -s tools/examples -p 'test_*.py'
 
-      - name: Test ComfyUI workflow builders (no server)
-        run: python -m unittest discover -s tools/comfy -p 'test_*.py'
-
       - name: Test MCP script client (no server)
         run: python -m unittest discover -s tools -p 'test_*.py'
 

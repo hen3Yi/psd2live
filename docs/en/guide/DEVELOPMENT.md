@@ -55,7 +55,7 @@ Notes:
 - Defaults come from [`Main.kt`](../../../src/main/kotlin/io/github/psd2live/Main.kt). The GUI's initial mesh spacing comes from `PipelineConfig` (40), not the CLI's 64.
 - Keep at least one of CMO3, MOC3 or the diagnostics JSON.
 - Neural alpha is on by default; `--upscale-neural-alpha` remains only for older commands.
-- Upscaling setup is described in the [texture upscale guide](../../zh/guide/TEXTURE_UPSCALE.md) (Chinese).
+- Upscaling setup is described in the [texture upscale guide](TEXTURE_UPSCALE.md).
 
 ### Headless MCP server
 
@@ -72,7 +72,7 @@ The `export` command exports a `.psd2live` project (its current history state) o
 ```
 
 - Files go to `--output` (by default `<name>-<target>` beside the input) with the loss report `<name>.<target>.report.json`; `--name` sets the base name.
-- `--set key=value` repeats; each target's settings are listed in [Neutral rig IR and export targets (中文)](../../zh/spec/EXPORT_TARGETS.md).
+- `--set key=value` repeats; each target's settings are listed in [Neutral rig IR and export targets](../spec/EXPORT_TARGETS.md).
 - Exit status: 0 on success, 1 when the export fails, 2 on a usage error.
 
 ## Tests and packaging
@@ -88,7 +88,7 @@ The `export` command exports a `.psd2live` project (its current history state) o
 - Official SDK resources (`src/main/resources/cubism/`) are excluded unless you pass `-Ppsd2live.includeCubism=true` or set `PSD2LIVE_INCLUDE_CUBISM=true`. Packages with the SDK must not be distributed publicly; see [CI and releases](CUBISM_CI_RELEASE.md).
 - On Linux, `./native/package_linux.sh` builds a local launcher package that needs a system JDK 21 (written to `dist/linux-<timestamp>/`); see [native/README.md](../../../native/README.md).
 - There is no separate lint task; code style is `kotlin.code.style=official`.
-- The Rust runtime builds in `runtime/` with `cargo test` and `cargo build --release`. See [Runtime (中文)](../../zh/spec/RUNTIME.md). Without a usable cargo, `./gradlew run` and packaging on Linux download the library CI (`runtime-prebuilt.yml`) built from the same sources, matched by a hash of `runtime/src`, `Cargo.toml` and `Cargo.lock` (`./gradlew printRuntimeHash`) and checked against its sha256; if none is found or you are offline, the built-in evaluator is used. `-Ppsd2live.prebuiltRuntime=false` turns the download off. When iterating on `runtime/`, `-Ppsd2live.fastRuntime=true` drops LTO for a much quicker build; the library is slower, so do not package with it.
+- The Rust runtime builds in `runtime/` with `cargo test` and `cargo build --release`. See [Runtime](../spec/RUNTIME.md). Without a usable cargo, `./gradlew run` and packaging on Linux download the library CI (`runtime-prebuilt.yml`) built from the same sources, matched by a hash of `runtime/src`, `Cargo.toml` and `Cargo.lock` (`./gradlew printRuntimeHash`) and checked against its sha256; if none is found or you are offline, the built-in evaluator is used. `-Ppsd2live.prebuiltRuntime=false` turns the download off. When iterating on `runtime/`, `-Ppsd2live.fastRuntime=true` drops LTO for a much quicker build; the library is slower, so do not package with it.
 - The test suite keeps only fast unit and contract tests; a full `./gradlew test` should finish within one minute. Do not add tests that run the whole pipeline on the example PSDs (tml, ds), compare every step against a cold replay or render whole frames; write such checks as the development tools below and run them by hand.
 
 ## External examples and acceptance
@@ -180,7 +180,7 @@ PSD2LIVE_TOOLS=1 PSD2LIVE_SAMPLE=ds ./gradlew test --tests "io.github.psd2live.t
 
 ## Code layout
 
-Sources are split into Gradle modules whose dependencies only point downward, which the build enforces: the engine ported from Umamo, `org.umamo.*`, lives in `:umamo` (`umamo/src/main/kotlin/`; it cannot depend on product code); the neutral rig IR `:format-model`, the export framework `:format-compile` and the raster exports `:targets:raster`, the runtime rig `:targets:runtime` and the runtime bindings `:format-eval` are MIT and depend on no GPL module; `:targets:cubism` (IR converter, moc3, cmo3) and `:targets:psd` use the engine; the product layer, `io.github.psd2live.*`, lives in the root project (`src/main/kotlin/`). See [Neutral rig IR and export targets (中文)](../../zh/spec/EXPORT_TARGETS.md). The engine packages:
+Sources are split into Gradle modules whose dependencies only point downward, which the build enforces: the engine ported from Umamo, `org.umamo.*`, lives in `:umamo` (`umamo/src/main/kotlin/`; it cannot depend on product code); the neutral rig IR `:format-model`, the export framework `:format-compile` and the raster exports `:targets:raster`, the runtime rig `:targets:runtime` and the runtime bindings `:format-eval` are MIT and depend on no GPL module; `:targets:cubism` (IR converter, moc3, cmo3) and `:targets:psd` use the engine; the product layer, `io.github.psd2live.*`, lives in the root project (`src/main/kotlin/`). See [Neutral rig IR and export targets](../spec/EXPORT_TARGETS.md). The engine packages:
 
 | Package | Responsibility |
 | --- | --- |

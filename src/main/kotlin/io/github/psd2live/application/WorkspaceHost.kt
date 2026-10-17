@@ -300,6 +300,17 @@ internal class WorkspaceHost<V>(
         result.mutation("Imported PSD ${input.fileName}")
     }
 
+    override suspend fun importLayout(path: String, discardUnsaved: Boolean): WorkspaceMutationResult = editMutex.withLock {
+        val (state, current) = captureSourceImport(discardUnsaved)
+        val input = Path.of(path)
+        val result = sourceImporter.importLayout(input, state.capture?.projectId, state.state, discardUnsaved,
+            sourceConfig(state, current)) { document, preview, id ->
+            presentation.sourceInstalled(current, document, preview, input, id)
+        }
+        finishSourceImport(result)
+        result.mutation("Imported layout ${input.fileName}")
+    }
+
     /** The settings a new source starts from: the open project's, without an imported model's switched-off generation. */
     private fun sourceConfig(state: WorkspaceRuntimeState<io.github.psd2live.core.RigPreviewModel>, current: V) =
         io.github.psd2live.core.Cmo3ModelImport.generationRestored(state.capture?.document?.rawConfig() ?: presentation.config(current))
@@ -1294,6 +1305,7 @@ internal class WorkspaceHost<V>(
 
     override fun listPhysics(): List<io.github.psd2live.core.PhysicsGroup> = captureQueries().listPhysics()
 
+    override fun listInteriorEffects() = captureQueries().listInteriorEffects()
     override fun listSwings() = captureQueries().listSwings()
     override fun layoutState() = captureQueries().layoutState()
 

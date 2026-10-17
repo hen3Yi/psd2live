@@ -541,6 +541,14 @@ fun CanvasViewportComposable(
         panY=-((minY+maxY)/2.0-viewSize.height/2.0-panY)*actual
 		zoom=next;cameraDirty=false;viewModel.setCanvasView(zoom.toFloat(),panX.toFloat(),panY.toFloat(), canvasId, mode)
     }
+    LaunchedEffect(viewModel.interior.frameRequest) {
+        if(viewModel.interior.frameRequest>0 && canvasId==viewModel.state.value.activeCanvas.id) {
+            val previous=editor.objects
+            try { editor.objects=setOfNotNull(viewModel.state.value.selectedLayerId);frameSelection() } finally { editor.objects=previous }
+            viewModel.interior.frameRequest=0
+        }
+    }
+
 
 
     fun computeViewport(model: RigPreviewModel, width: Int, height: Int, margin: Int = 34): CanvasViewport =
@@ -724,6 +732,11 @@ fun CanvasViewportComposable(
 			ShortcutAction.SELECTION_STYLE_BOX -> { editor.selectionStyle = SelectionStyle.BOX; true }
 			ShortcutAction.SELECTION_STYLE_LASSO -> { editor.selectionStyle = SelectionStyle.LASSO; true }
 			ShortcutAction.SELECT_LINKED -> { editor.selectLinked(); true }
+			ShortcutAction.LAYER_TO_FRONT -> viewModel.reorderSelectedLayers("front")
+			ShortcutAction.LAYER_FORWARD -> viewModel.reorderSelectedLayers("forward")
+			ShortcutAction.LAYER_BACKWARD -> viewModel.reorderSelectedLayers("backward")
+			ShortcutAction.LAYER_TO_BACK -> viewModel.reorderSelectedLayers("back")
+			ShortcutAction.LAYER_TOGGLE_REFERENCE -> viewModel.toggleSelectedLayersReference()
 			ShortcutAction.PICK_OPTION_1, ShortcutAction.PICK_OPTION_2, ShortcutAction.PICK_OPTION_3,
 			ShortcutAction.PICK_OPTION_4, ShortcutAction.PICK_OPTION_5 -> editor.pickVariant(action.pickIndex!!)
 			ShortcutAction.CANCEL -> {
@@ -919,6 +932,17 @@ fun CanvasViewportComposable(
                 else -> Cursor.getDefaultCursor()
             }))
 			.onPointerEvent(PointerEventType.Press) { event ->
+				if (
+					mode == CanvasMode.EDIT &&
+						viewModel.interior.poseTarget != null &&
+						!viewModel.interior.mouse
+				) {
+					viewModel.interior.stopTrial()
+					event.changes.forEach { it.consume() }
+					return@onPointerEvent
+				}
+
+
 				if (viewModel.state.value.activeCanvas.id != canvasId) {
 					viewModel.focusCanvas(canvasId)
 				}
@@ -1057,6 +1081,39 @@ fun CanvasViewportComposable(
 				}
 			}
 			.onPointerEvent(PointerEventType.Move) { event ->
+				if (
+					mode == CanvasMode.EDIT &&
+						viewModel.interior.acceptsMouse(canvasState) &&
+						!editor.inGesture &&
+						previewModel != null
+				) {
+					val effect =
+						canvasState.rigEdits.interiorEffects.singleOrNull {
+							it.target ==
+								previewModel.rig.layerIdByDrawableId.entries
+									.firstOrNull { e -> e.value == canvasState.selectedLayerId }
+									?.key || it.target == canvasState.selectedLayerId
+						}
+					val pointer = event.changes.firstOrNull()?.position
+					if (effect != null && pointer != null && !event.changes.any { it.isConsumed }) {
+						val q = viewModel.interior.neutralBounds
+						if (q != null) {
+							val v = currentViewportFor(viewSize)
+							val local = canvasState.isolatedLayerId == canvasState.selectedLayerId
+							val cx = if (local) v.x((q[0] + q[2]) / 2).toFloat() else viewSize.width * .5f
+							val cy =
+								if (local) v.yFromWorld((q[1] + q[3]) / 2).toFloat() else viewSize.height * .5f
+							val w = if (local) ((q[2] - q[0]) * v.scale / 2).toFloat() else viewSize.width * .5f
+							val h =
+								if (local) ((q[3] - q[1]) * v.scale / 2).toFloat() else viewSize.height * .5f
+							val rawX = ((pointer.x - cx) / maxOf(w, 1f)).coerceIn(-1f, 1f)
+							val rawY = ((pointer.y - cy) / maxOf(h, 1f)).coerceIn(-1f, 1f)
+							viewModel.interior.pointer(canvasState, effect, rawX, rawY)
+						}
+					}
+				}
+
+
 				val change = event.changes.firstOrNull() ?: return@onPointerEvent
                 // The key latch misses a release that lands elsewhere (Alt+Tab, a swallowed key-up) and
                 // would leave every paint tool picking; the pointer's own modifiers are the truth.
@@ -1398,6 +1455,12 @@ fun CanvasViewportComposable(
 						}
 					}
 
+					// 3a''. Reference layers under the model: drawn before the artwork, whose frame clears to transparent.
+					val referenceLayersShown = mode == CanvasMode.EDIT && showTexture && model.referenceLayerIds.isNotEmpty()
+					if (referenceLayersShown && !viewOptions.referenceLayersOver) drawIntoCanvas { target ->
+						ReferenceLayerPainter.paint(target.nativeCanvas, model, geometry, viewport, targetVisibleLayerIds)
+					}
+
 					// 3a. Texture Channel. The artwork always renders opaque; legibility of the
 					// overlays comes from the focus/dim options instead of a global transparency.
 					val paintLayerId = paintSession?.layerId
@@ -1450,6 +1513,11 @@ fun CanvasViewportComposable(
 							)
 						}
 					}
+
+				// 3a''. Reference layers over the model, when the view asks for them there.
+				if (mode == CanvasMode.EDIT && showTexture && viewOptions.referenceLayersOver && model.referenceLayerIds.isNotEmpty()) drawIntoCanvas { target ->
+					ReferenceLayerPainter.paint(target.nativeCanvas, model, geometry, viewport, targetVisibleLayerIds)
+				}
 
 				// 3a'. Layout reference and density heatmap over the artwork, in canvas units.
 				if (mode == CanvasMode.EDIT && viewOptions.densityHeatmap) {
@@ -1790,6 +1858,36 @@ fun CanvasViewportComposable(
 				},
 			)
 		}
+		if (
+			mode == CanvasMode.EDIT &&
+				viewModel.interior.acceptsMouse(canvasState) &&
+				viewModel.interior.neutralBounds != null
+		) {
+			val bounds = viewModel.interior.neutralBounds!!
+			val vp = currentViewportFor(viewSize)
+			val local = canvasState.isolatedLayerId == canvasState.selectedLayerId
+			val center =
+				if (local)
+					Offset(
+						vp.x((bounds[0] + bounds[2]) / 2).toFloat(),
+						vp.yFromWorld((bounds[1] + bounds[3]) / 2).toFloat(),
+					)
+				else Offset(viewSize.width * .5f, viewSize.height * .5f)
+			androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+				drawLine(
+					colors.accent,
+					center - Offset(7.dp.toPx(), 0f),
+					center + Offset(7.dp.toPx(), 0f),
+					1.dp.toPx(),
+				)
+				drawLine(
+					colors.accent,
+					center - Offset(0f, 7.dp.toPx()),
+					center + Offset(0f, 7.dp.toPx()),
+					1.dp.toPx(),
+				)
+			}
+		}
         // Overlay: Empty hint or Stats Badge
 		if (previewModel == null) {
 			EmptyCanvasHint(
@@ -1876,6 +1974,7 @@ fun CanvasViewportComposable(
 				showSelectionFocus = mode == CanvasMode.EDIT,
 				showSourcePixels = mode == CanvasMode.EDIT,
 				hasReference = mode == CanvasMode.EDIT && layoutReference != null,
+				hasReferenceLayers = mode == CanvasMode.EDIT && canvasState.previewModel?.referenceLayerIds?.isNotEmpty() == true,
 				showDensity = mode == CanvasMode.EDIT,
 				// The skin weights belong to the skeleton's meshes, so the toggle comes with an armature.
 				skinWeights = editor.showSkeletonWeights.takeIf { mode == CanvasMode.EDIT && editor.committedSkeleton != null },

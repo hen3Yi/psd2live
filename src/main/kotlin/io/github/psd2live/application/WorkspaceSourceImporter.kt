@@ -19,6 +19,7 @@ internal class WorkspaceSourceImporter(
         require(PsdReader.matches(bytes)) { "Invalid PSD file" }
         PsdReader.read(bytes)
     } },
+    private val readLayout: suspend (Path) -> LayoutManifest.Layout = { path -> runInterruptible(Dispatchers.IO) { LayoutManifest.read(path) } },
     private val readArtwork: suspend (JsonObject) -> Pair<WorkspaceSourceArt, Map<String, LayerClassificationOverride>> = {
         runInterruptible(Dispatchers.IO) { sourceArtwork(it) }
     },
@@ -34,14 +35,30 @@ internal class WorkspaceSourceImporter(
         return install(projectId, state, discardUnsaved, initialConfig, "Imported PSD $displayName",
             prepare = {
                 require(path.isAbsolute && Files.isRegularFile(path) && path.fileName.toString().endsWith(".psd", true)) { "Provide an absolute local PSD path" }
-                readPsd(path) to emptyMap()
-            }, project = project, sourceAuxiliary = sourceAuxiliary, materialFolder = displayName)
+                Prepared(readPsd(path), emptyMap(), materials = displayName)
+            }, project = project, sourceAuxiliary = sourceAuxiliary)
     }
+
+    /**
+     * A new Layout project, not generated yet, from a layout manifest or a zip holding one ([LayoutManifest]): each image
+     * keeps its pixels over its rectangle, tags and variants classify the layers, and the layers are also materials. The
+     * project keeps no copy of the manifest; its pixels live in the history, as any Layout project's do.
+     */
+    suspend fun importLayout(path: Path, projectId: String?, state: String, discardUnsaved: Boolean = false,
+                             initialConfig: PipelineConfig = PipelineConfig(),
+                             project: (WorkspaceDocument, RigPreviewModel, String) -> Unit = { _, _, _ -> }): WorkspaceCommit<RigPreviewModel> =
+        install(projectId, state, discardUnsaved, initialConfig, "Imported layout ${path.fileName}", {
+            require(path.isAbsolute && Files.isRegularFile(path)) { "Provide an absolute local layout manifest path" }
+            val layout = readLayout(path)
+            val source = LayoutManifest.source(layout)
+            Prepared(source.art, source.overrides, source.userTags, materials = path.fileName.toString(), materialFolder = layout.name,
+                references = source.references)
+        }, project, layout = true)
 
     suspend fun createArtwork(arguments: JsonObject, projectId: String?, state: String, discardUnsaved: Boolean = false,
                               initialConfig: PipelineConfig = PipelineConfig(),
                               project: (WorkspaceDocument, RigPreviewModel, String) -> Unit = { _, _, _ -> }): WorkspaceCommit<RigPreviewModel> =
-        install(projectId, state, discardUnsaved, initialConfig, "Created source artwork", { readArtwork(arguments) }, project)
+        install(projectId, state, discardUnsaved, initialConfig, "Created source artwork", { readArtwork(arguments).let { Prepared(it.first, it.second) } }, project)
 
     /** A new empty canvas of [width] x [height], not generated: materials are placed first and the rig generated later. */
     suspend fun createLayout(width: Int, height: Int, projectId: String?, state: String, discardUnsaved: Boolean = false,
@@ -49,14 +66,21 @@ internal class WorkspaceSourceImporter(
                              project: (WorkspaceDocument, RigPreviewModel, String) -> Unit = { _, _, _ -> }): WorkspaceCommit<RigPreviewModel> {
         require(width in 1..8192 && height in 1..8192 && width.toLong() * height <= 16_777_216) { "Canvas must be 1..8192 per side and at most 16 megapixels" }
         return install(projectId, state, discardUnsaved, initialConfig, "Created layout project",
-            { WorkspaceSourceArt(width, height, emptyList(), emptyList()) to emptyMap() }, project, layout = true)
+            { Prepared(WorkspaceSourceArt(width, height, emptyList(), emptyList()), emptyMap()) }, project, layout = true)
     }
 
+    /**
+     * What a new project starts from: its source, classifications and the user's own tags; [materials] names the file
+     * whose layers also become materials (in a folder named [materialFolder], else after the file).
+     */
+    private class Prepared(val source: SourceArt, val overrides: Map<String, LayerClassificationOverride>,
+                           val userTags: Map<String, Set<String>> = emptyMap(), val materials: String? = null, val materialFolder: String? = null,
+                           val references: Set<String> = emptySet())
+
     private suspend fun install(projectId: String?, state: String, discardUnsaved: Boolean, initialConfig: PipelineConfig,
-                                summary: String, prepare: suspend () -> Pair<SourceArt, Map<String, LayerClassificationOverride>>,
+                                summary: String, prepare: suspend () -> Prepared,
                                 project: (WorkspaceDocument, RigPreviewModel, String) -> Unit,
-                                sourceAuxiliary: JsonObject = JsonObject(emptyMap()), layout: Boolean = false,
-                                materialFolder: String? = null): WorkspaceCommit<RigPreviewModel> {
+                                sourceAuxiliary: JsonObject = JsonObject(emptyMap()), layout: Boolean = false): WorkspaceCommit<RigPreviewModel> {
         val before = runtime.state.value
         currentCoroutineContext().ensureActive()
         // Capture before source I/O. Another edit or reload cannot be hidden by taking a newer token.
@@ -67,17 +91,21 @@ internal class WorkspaceSourceImporter(
             currentCoroutineContext()[WorkspaceJobContext]?.progress(value, message)
         }
         progress(0.1f, "Reading source artwork")
-        val (source, overrides) = prepare()
+        val input = prepare()
+        val source = input.source; val overrides = input.overrides
         progress(0.4f, "Preparing new source document")
         val config = initialConfig.copy(layerVisibility = emptyMap(), deletedLayerIds = emptySet(),
             layerOverrides = overrides, parentOverrides = emptyMap(), drawOrderOverrides = emptyMap(), meshOverrides = emptyMap(),
             rigEdits = RigEditOverlay.Empty, generationSource = null, meshSource = null, hairSimulationFront = false, hairSimulationBack = false)
         val created = WorkspaceDocument(source, emptyMap(), emptySet(), overrides, emptyMap(), RigEditOverlay.Empty,
             WorkspaceSettingsCodec.encode(config),
-            layout = if (layout) WorkspaceLayout(generation = WorkspaceGeneration.NotGenerated) else WorkspaceLayout.Empty)
+            layout = if (layout) WorkspaceLayout(generation = WorkspaceGeneration.NotGenerated, layerTags = input.userTags,
+                referenceLayerIds = input.references) else WorkspaceLayout.Empty)
         // An imported file's layers are also materials of the new project, each layer showing its own: they can be
         // replaced, placed again or exported from the material browser. The rig reads only the source, as before.
-        val document = materialFolder?.let { name -> WorkspaceMaterialEdits.addLinked(created, name) } ?: created
+        val document = input.materials?.let { file ->
+            input.materialFolder?.let { WorkspaceMaterialEdits.addLinked(created, file, it) } ?: WorkspaceMaterialEdits.addLinked(created, file)
+        } ?: created
         progress(0.6f, "Rebuilding new source project")
         val built = build(document)
         if (layout) {

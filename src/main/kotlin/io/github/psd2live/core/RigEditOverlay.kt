@@ -243,6 +243,7 @@ data class RigEditOverlay(
     val motionPresets: Map<String, MotionPresetSettings> = emptyMap(),
     /** Simulated bodies; they read the rebuilt rig and, once baked, write back through their own generator. */
     val simEdits: List<io.github.psd2live.core.sim.RigSimEdit> = emptyList(),
+    val interiorEffects: List<io.github.psd2live.core.interior.NativeInteriorEffect> = emptyList(),
 ) {
 	init {
         require(motionClips.map { it.id }.distinct().size == motionClips.size) { "Duplicate motion IDs" }
@@ -337,13 +338,33 @@ data class RigEditOverlay(
 	}
 
 	/** Generated axes do not exist until swing/simulation materialization: panel moves and links that name them. */
-	private val generatedIds: Set<String> by lazy { swingEdits.flatMap { it.parameterIds }.toSet() + simEdits.flatMap { it.outputParameters } }
+	private val generatedIds: Set<String> by lazy { swingEdits.flatMap { it.parameterIds }.toSet() + simEdits.flatMap { it.outputParameters } + interiorEffects.flatMap { it.parameterIds } }
+
+	/** Retained generator parameters keep the panel phase in which their edits were recorded.
+	 * An explicit later parameter deletion ends that lifetime, including across checkpoints. */
+	private val deferredPanelIds: Set<String> by lazy {
+		val retained = LinkedHashSet<String>()
+		for (command in authoringJournal) {
+			(command[PANEL_AFTER_GENERATION] as? kotlinx.serialization.json.JsonArray)?.forEach {
+				retained += it.jsonPrimitive.content
+			}
+			if (command["op"]?.jsonPrimitive?.contentOrNull == "structure") {
+				for (entry in (command["edits"] as? kotlinx.serialization.json.JsonArray).orEmpty()) {
+					val edit = entry.jsonObject
+					if (edit["kind"]?.jsonPrimitive?.contentOrNull == "parameter" && edit["action"]?.jsonPrimitive?.contentOrNull == "delete") {
+						retained -= edit.getValue("id").jsonPrimitive.content
+					}
+				}
+			}
+		}
+		generatedIds + retained
+	}
 
 	private fun generatedPanelEdit(edit: kotlinx.serialization.json.JsonObject): Boolean =
 		edit["kind"]?.jsonPrimitive?.contentOrNull == "parameter" &&
 			edit["action"]?.jsonPrimitive?.contentOrNull in setOf("move", "link") &&
 			listOf("id", "partner_id", "before_id").any { field ->
-				edit[field]?.jsonPrimitive?.contentOrNull in generatedIds
+				edit[field]?.jsonPrimitive?.contentOrNull in deferredPanelIds
 			}
 
 	/**
@@ -365,7 +386,7 @@ data class RigEditOverlay(
 		val earlyStructureEdits = structureEdits.filterNot(::generatedPanelEdit)
 		// Everything the legacy stage reads, and what decides how the journal's structure edits split.
 		val legacy = ReplayCheckpoints.Legacy(listOf(deletedParameterIds, parameterEdits, warpEdits, structureEdits,
-			keyformSetEdits, keyformCopyEdits, keyformDeleteEdits, generatedIds, io.github.psd2live.i18n.I18n.currentLanguage.tag, skins))
+			keyformSetEdits, keyformCopyEdits, keyformDeleteEdits, deferredPanelIds, io.github.psd2live.i18n.I18n.currentLanguage.tag, skins))
 		// The notes ride in the checkpointed state, so a replay resumed from a checkpoint still reports every entry.
 		val replayed = ReplayCheckpoints.replay(base, legacy, authoringJournal, start = {
 			var model = base
@@ -453,7 +474,7 @@ data class RigEditOverlay(
 		val journal = authoringJournal
 		val before = previous.authoringJournal
 		if (journal.size < before.size || (0 until before.size).any { journal[it] !== before[it] && journal[it] != before[it] }) return false
-		if ((previous.checkpointIndex < 0 && !sameLegacyStage(previous)) || generatedIds != previous.generatedIds) return false
+		if ((previous.checkpointIndex < 0 && !sameLegacyStage(previous)) || deferredPanelIds != previous.deferredPanelIds) return false
 		return (before.size until journal.size).none { journal[it]["op"]?.jsonPrimitive?.contentOrNull in setOf(ArtPrimitiveJournal.OP, RigCheckpoint.OP) }
 	}
 
@@ -501,6 +522,8 @@ data class RigEditOverlay(
 	private val stubTolerance: java.util.IdentityHashMap<kotlinx.serialization.json.JsonObject, Set<String>> by lazy { StubTolerance.of(authoringJournal) }
 
 	companion object {
+		/** Internal structure-record metadata for user-retained parameter panel edits. */
+		internal const val PANEL_AFTER_GENERATION = "panel_after_generation"
 		/** Cubism Editor's default physics rate. */
 		const val DEFAULT_PHYSICS_FPS = 60
 		// Before [Empty], which checks against it while the companion initializes.

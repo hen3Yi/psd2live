@@ -48,6 +48,8 @@ internal object WorkspaceMaterialFiles {
     /** The largest texture resolution a vector drawing renders at, per side. */
     const val MAX_VECTOR_SIDE = 4096
     val extensions = setOf("png", "bmp", "tif", "tiff", "webp", "jpg", "jpeg", "psd", "cmo3", "svg")
+    /** What can be imported by name: [extensions], and a layout manifest or a zip holding one, which a folder's scan leaves out. */
+    val fileExtensions = extensions + setOf("json", "zip")
 
     /** One material read from a file: [folder] is the folder path under the import's destination, top first. */
     data class Entry(
@@ -65,12 +67,16 @@ internal object WorkspaceMaterialFiles {
         /** The canvas [placement] is on: the PSD's or CMO3's document size; 0 when unknown. */
         val placementWidth: Int = 0,
         val placementHeight: Int = 0,
+        /** Semantic and user tags the item carries ([io.github.psd2live.core.LayerTags]). */
+        val tags: Set<String> = emptySet(),
+        /** Placed as a reference layer by default ([io.github.psd2live.project.MaterialItem.reference]). */
+        val reference: Boolean = false,
     )
 
     /**
-     * The materials [paths] hold: a file gives its image, a PSD or CMO3 a folder of its layers, a folder a folder of its
-     * supported files. [cmo3Images]: read a CMO3's layered images (its atlas pages when it has none); the whole model
-     * imports through `project_import_cmo3` instead.
+     * The materials [paths] hold: a file gives its image, a PSD, CMO3 or layout manifest ([LayoutManifest], also inside
+     * a zip) a folder of its layers, a folder a folder of its supported files. [cmo3Images]: read a CMO3's layered images
+     * (its atlas pages when it has none); the whole model imports through `project_import_cmo3` instead.
      */
     fun read(paths: List<Path>, checkCancelled: () -> Unit = {}): List<Entry> {
         require(paths.size in 1..MAX_PATHS) { "Give 1..$MAX_PATHS paths" }
@@ -83,6 +89,10 @@ internal object WorkspaceMaterialFiles {
             val size = Files.size(path)
             bytes += size
             require(bytes <= MAX_BYTES) { "An import reads at most ${MAX_BYTES / (1024 * 1024)} MiB" }
+            if (path.extension.lowercase() in setOf("json", "zip")) {
+                val layout = LayoutManifest.read(path, checkCancelled)
+                return LayoutManifest.materials(layout, folder + name(layout.name, "layout"), path.name).map { it.copy(fileFolder = folder.size) }
+            }
             val data = Files.readAllBytes(path)
             val origin = path.name
             return when (path.extension.lowercase()) {
@@ -114,7 +124,7 @@ internal object WorkspaceMaterialFiles {
             require(Files.exists(path)) { "File not found: $path" }
             if (path.isDirectory()) directory(path, emptyList())
             else {
-                require(path.extension.lowercase() in extensions) { "Unsupported material file: ${path.name}" }
+                require(path.extension.lowercase() in extensions || LayoutManifest.matches(path)) { "Unsupported material file: ${path.name}" }
                 file(path, emptyList())
             }
         }

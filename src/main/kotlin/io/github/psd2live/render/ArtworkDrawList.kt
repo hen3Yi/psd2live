@@ -49,6 +49,8 @@ internal object ArtworkDrawList {
 		val out = ArrayList<ArtworkDraw>(drawables.size)
 		for (drawable in drawables) {
 			val layerId = model.rig.layerIdByDrawableId[drawable.id.raw]
+			// A reference layer's quad has no atlas tile: the canvas draws its pixels on their own.
+			if (layerId != null && layerId in model.referenceLayerIds) continue
 			if (visible != null && layerId != null && layerId !in visible) continue
 			if (visible != null && layerId == null && drawable.id.raw !in visible && !drawable.isVisible) continue
 			val highlighted = options.highlightedLayerIds == null ||

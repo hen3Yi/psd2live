@@ -107,7 +107,8 @@ internal class WorkspacePlaybackSessions(private val runtime: WorkspaceRuntime<R
     @Synchronized fun pointer(workspaceId: String, pointer: Pair<Float, Float>?) {
         require(pointer == null || (pointer.first.isFinite() && pointer.second.isFinite() &&
             pointer.first in -1f..1f && pointer.second in -1f..1f)) { "Pointer must be normalized to -1..1" }
-        val capture = runtime.capture()
+        // A pointer moving over an empty canvas has no session to track it.
+        val capture = runtime.state.value.capture ?: return
         val generation = capture.state.substringBeforeLast(':')
         val session = sessions[workspaceId]?.takeIf { it.projectId == capture.projectId && it.generation == generation } ?: return
         if (session.tracking && session.pointer != pointer) sessions[workspaceId] = session.copy(pointer = pointer)

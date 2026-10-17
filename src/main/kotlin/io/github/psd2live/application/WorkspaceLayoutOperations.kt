@@ -63,12 +63,13 @@ internal object WorkspaceLayoutOperations {
             "height" to integer(1, WorkspaceMaterialFiles.MAX_VECTOR_SIDE)), listOf("state", "id", "width", "height")),
         WorkspaceMaterialEdits.PLACE to schema(state + mapOf("material_id" to string(), "rect" to rect,
             "at" to buildJsonObject { put("type", "array"); put("items", number()); put("minItems", 2); put("maxItems", 2) },
-            "layer_id" to string()), listOf("state", "material_id")),
+            "layer_id" to string(), "reference" to boolean()), listOf("state", "material_id")),
         WorkspaceMaterialPixels.PAINT to schema(state + mapOf("id" to string()) + gesture + mapOf("gestures" to buildJsonObject {
             put("type", "array"); put("minItems", 1); put("maxItems", WorkspaceMaterialPixels.MAX_GESTURES)
             put("items", schema(gesture, listOf("mode")))
         }), listOf("state", "id")),
         WorkspaceMaterialEdits.UNLINK to schema(state + mapOf("layer_ids" to strings(1, 128)), listOf("state", "layer_ids")),
+        WorkspaceMaterialEdits.MARK_REFERENCE to schema(state + mapOf("ids" to strings(1, 1024), "reference" to boolean()), listOf("state", "ids", "reference")),
         WorkspaceMaterialEdits.REFERENCE to schema(state + mapOf("material_id" to nullableString(), "rect" to rect,
             "opacity" to range(0, 1), "visible" to boolean()), listOf("state")),
         WorkspaceMaterialEdits.CROP to schema(state + mapOf("id" to string(), "rect" to rect, "canvas_rect" to rect, "name" to string(),
@@ -99,6 +100,9 @@ internal object WorkspaceLayoutOperations {
             "threshold" to buildJsonObject { put("type", "array"); put("items", range(0, 255)); put("minItems", 2); put("maxItems", 2) },
             "grow" to integer(0, WorkspaceMaterialPeel.MAX_RADIUS), "core" to integer(0, WorkspaceMaterialPeel.MAX_RADIUS),
             "close" to integer(0, WorkspaceMaterialPeel.MAX_RADIUS), "band" to integer(0, WorkspaceMaterialPeel.MAX_RADIUS), "color_match" to boolean(),
+            "keep" to buildJsonObject { put("type", "array"); put("minItems", 1); put("maxItems", WorkspaceMaterialPeel.MAX_KEEP)
+                put("items", buildJsonObject { put("type", "array"); put("items", integer(0, 65535)); put("minItems", 2); put("maxItems", 2) }) },
+            "compare_scale" to integer(1, WorkspaceMaterialPeel.MAX_COMPARE_SCALE),
             "name" to string(), "part_id" to string(), "base_id" to string()), listOf("state", "id", "revealed")),
         WorkspaceMaterialPeel.PLACEMENT to schema(state + mapOf("id" to string(),
             "canvas_rect" to buildJsonObject { put("oneOf", buildJsonArray { add(rect); add(buildJsonObject { put("type", "null") }) }) },
@@ -116,11 +120,14 @@ internal object WorkspaceLayoutOperations {
         WorkspaceMaterialEdits.PLACE to "Place a material on the canvas as new source layers: an item as one layer, a folder as one layer per item in it with its subfolders as source groups, items keeping their places relative to each other. " +
             "Default size: the item's own place (a PSD layer's position) with the PSD's canvas centred on the project canvas and shrunk to fit it (unchanged when both are one size), else one material pixel per canvas unit fitted into the canvas. Canvas units are the model's coordinates (exported as the Cubism model canvas, one pixel per unit) and set its size, not its sharpness, which comes from the material's own pixels and the atlas budget; rect sets an item's canvas rectangle (the pixels are not resampled, so a smaller rectangle is a denser texture); at [x, y] centres the placement there. " +
             "The material's tags and its folders' tags become the layer's tags. Placed layers paint over the others. In a generated project they wait for rig_generate and show as plain meshes until then; " +
-            "move them with layer_set_canvas_rect or layer_transform (move, scale, mirror), replace their pixels with layer_replace_image. layer_id names a single item's new layer. The changed list names the new layers (layer:<id>). One history edit.",
+            "move them with layer_set_canvas_rect or layer_transform (move, scale, mirror), replace their pixels with layer_replace_image. layer_id names a single item's new layer. " +
+            "reference true places every layer as a reference layer (layer_mark_reference), false as model layers; omitted, each item follows its own mark (material_mark_reference). The changed list names the new layers (layer:<id>). One history edit.",
         WorkspaceMaterialPixels.PAINT to "Paint on a material item's own pixels, in its pixel coordinates (origin at the top left), with the raster engine the paint operation uses: one gesture given by mode and its fields, or gestures, a list of up to ${WorkspaceMaterialPixels.MAX_GESTURES} applied in order (a painting session's strokes as one edit). " +
             "brush, pencil and eraser take points, radius and hardness; bucket a point and tolerance; shape from, to, shape, stroke_width and filled; clear erases everything. color is RGBA bytes (default opaque black), opacity 0..1. " +
             "Every layer showing the item takes the new pixels over its unchanged canvas rectangle, as layer_replace_image does; a vector item becomes a bitmap of its current raster. One history edit.",
         WorkspaceMaterialEdits.UNLINK to "Unlink layers from the materials they show: their pixels stay as they are, become their own, and painting them no longer paints the material. A layer linked to a material shows its pixels; painting it (Paint mode, source_paint_*, paint_session_begin with its layer_id) paints the material and every layer showing it, and an edit that gives it other pixels unlinks it. One history edit.",
+        WorkspaceMaterialEdits.MARK_REFERENCE to "Mark material items - and every item in the folders given - to place as reference layers (reference true) or as model layers (false) " +
+            "when layer_place does not say. A layout manifest's reference layers import marked. Placed layers already on the canvas keep what they are; layer_mark_reference changes them. One history edit.",
         WorkspaceMaterialEdits.REFERENCE to "Set the reference image: a material item laid over the canvas at opacity (default 0.5) to place layers against and compare the model with. " +
             "It is not a layer: generation, export and the rig never see it. Without rect a new material is fitted into the canvas and centred (scaled up or down, aspect kept); " +
             "omitted fields keep their values; material_id null clears it, visible false hides it. view_render_model draws it with reference {mode: over, under or difference}; " +
@@ -148,7 +155,8 @@ internal object WorkspaceLayoutOperations {
             "(threshold [low, high] colour difference 0..255, default [8, 30], soft between), and the image under it, id with only the part's area taken from revealed. " +
             "Generators redraw a whole image slightly, so everything outside the part keeps id's pixels and the part over the image under it gives id again; a tone shift over the whole image (each channel's median offset, so the part should cover less than half of it) is not counted as a difference. " +
             "region (an item of the same size, white or opaque where the part may be, such as a segmentation mask) keeps the part inside it, grown by grow pixels; core forces the region shrunk by core pixels fully into the part; " +
-            "close fills gaps up to that radius (default 2). color_match (default true) moves revealed's colours to id's over a band pixels wide (default 24) of untouched pixels around the part. " +
+            "close fills gaps up to that radius (default 2). keep ([x, y] points in id's pixels, on or within ${WorkspaceMaterialPeel.KEEP_REACH} pixels of the part) keeps only the connected pieces of the part those points touch, dropping specks the generator changed elsewhere. " +
+            "compare_scale (1..${WorkspaceMaterialPeel.MAX_COMPARE_SCALE}, default 1) measures the difference with both images shrunk by that factor: give the factor revealed was enlarged by when the generator ran smaller than id, so the enlargement's softer lines do not read as the part. color_match (default true) moves revealed's colours to id's over a band pixels wide (default 24) of untouched pixels around the part. " +
             "Peel the front part first, then peel the next part off the image under it. name names the part; part_id and base_id name the new items for later batch members. One history edit; the changed list names them (material:<id>).",
         WorkspaceMaterialPeel.PLACEMENT to "Set where a material item sits on the canvas, its default place for layer_place: canvas_rect in canvas units, from another item's place (a sharper image generated from a close-up takes the close-up's place, " +
             "its extra pixels becoming a denser texture), or canvas_rect null to clear it. The pixels are unchanged. One history edit.",
@@ -157,6 +165,10 @@ internal object WorkspaceLayoutOperations {
     fun summary(id: String, request: JsonObject): String = when (id) {
         WorkspaceLayoutEdits.TAG -> "Tagged ${request.getValue("layer_ids").jsonArray.size} layer(s)"
         WorkspaceLayoutEdits.VARIANT -> "Set variant of ${request.getValue("layer_id").jsonPrimitive.content}"
+        WorkspaceLayoutEdits.MARK_REFERENCE -> if (request.getValue("reference").jsonPrimitive.boolean)
+            "Kept ${request.getValue("layer_ids").jsonArray.size} layer(s) as reference" else "Gave ${request.getValue("layer_ids").jsonArray.size} layer(s) back to the model"
+        WorkspaceMaterialEdits.MARK_REFERENCE -> if (request.getValue("reference").jsonPrimitive.boolean) "Marked materials as reference" else "Unmarked reference materials"
+        WorkspaceLayoutEdits.REORDER -> "Moved ${request.getValue("layer_ids").jsonArray.size} layer(s) ${request.getValue("to").jsonPrimitive.content}"
         WorkspaceGenerationEdits.GENERATE -> "Generated the rig"
         WorkspaceMaterialEdits.ADD -> "Imported materials"
         WorkspaceMaterialEdits.FOLDER -> "Created material folder ${request.getValue("name").jsonPrimitive.content}"
@@ -187,7 +199,7 @@ internal object WorkspaceLayoutOperations {
             "folders" to s.integer(0), "items" to s.integer(0)), setOf("id", "name", "tags", "folders", "items"))
         val item = s.obj(mapOf("id" to s.handle(), "name" to s.string(), "folder_id" to s.handle(), "kind" to s.choices("bitmap", "vector"),
             "width" to s.integer(1), "height" to s.integer(1), "tags" to tags, "origin" to s.string(), "placement" to s.vector(4),
-            "references" to s.integer(0)), setOf("id", "name", "kind", "width", "height", "tags", "references"))
+            "references" to s.integer(0), "reference" to s.boolean()), setOf("id", "name", "kind", "width", "height", "tags", "references"))
         s.obj(mapOf("folder_id" to s.handle(), "path" to s.array(s.obj(mapOf("id" to s.handle(), "name" to s.string()))),
             "total" to s.integer(0), "folders" to s.array(folder), "items" to s.array(item), "next" to s.integer(1),
             "reference" to s.obj(mapOf("material_id" to s.handle(), "rect" to s.vector(4), "opacity" to s.number(), "visible" to s.boolean()))),
@@ -197,7 +209,7 @@ internal object WorkspaceLayoutOperations {
         val s = WorkspaceResultSchema
         s.obj(mapOf("type" to s.choices("item", "folder"), "id" to s.handle(), "name" to s.string(), "folder_id" to s.handle(),
             "parent_id" to s.handle(), "kind" to s.choices("bitmap", "vector"), "width" to s.integer(1), "height" to s.integer(1),
-            "tags" to s.array(s.string()), "origin" to s.string(), "placement" to s.vector(4), "references" to s.integer(0),
+            "tags" to s.array(s.string()), "origin" to s.string(), "placement" to s.vector(4), "references" to s.integer(0), "reference" to s.boolean(),
             "layers" to s.array(s.handle()), "folder_path" to s.array(s.string()), "vector_size" to s.array(s.integer(1), 2, 2), "svg" to s.string(),
             "folders" to s.integer(0), "items" to s.integer(0)), setOf("type", "id", "name", "tags", "folder_path"))
     }

@@ -35,7 +35,7 @@ PSD2Live is a complete 2D character rigging toolchain: it generates meshes, defo
 | **Experienced and tired of repetitive work** | Meshes, deformer chains, facial parameters and physics in one click, then refine on the canvas; hand edits are stored as replayable records and survive regeneration |
 | **Looking for an open-source alternative** | Editor, engine and project format are all open source; edit, preview and export `.moc3` / `.cmo3` without the official SDK |
 | **Held back by what Cubism offers** | Skeletons and IK, 2D cloth and hair simulation and automatic armatures, tools Cubism does not have, baked into native structures on export |
-| **Putting characters into your own program** | The open-source Rust runtime p2lrt plugs into C / C++, .NET, Android, the web and Godot, with its own software renderer; also video, frame sequences, and Spine and glTF (experimental) |
+| **Putting characters into your own program** | The open-source Rust runtime p2lrt plugs into C / C++, .NET, Android, the web and Godot, with its own software renderer; also video, frame sequences, and Spine, glTF and Unity (experimental) |
 
 ## Core capabilities
 
@@ -179,9 +179,9 @@ The full naming table is in [PSD preparation](spec/PSD_LAYER_SPEC.md). Unrecogni
 | **Your program / engine / the web** | A `.p2lrt` rig for C / C++, .NET, Unity, Godot and Android, or a WebGL player page that opens in a browser |
 | **Images and video** | PNG sequences, sprite sheets, GIF; APNG, animated WebP, MP4, WebM, ProRes 4444 (through ffmpeg) |
 | **PSD** | A layered PSD at the current pose, or the source PSD with generated layers |
-| **Experimental** | Spine 4.2, DragonBones 5.5, glTF 2.0, from the command line only |
+| **Experimental** | Spine 4.2, DragonBones 5.5 and glTF 2.0, from the command line only. The Unity prefab is under **File → Export as** |
 
-`Ctrl+G` exports Cubism formats for target versions 3.0 – 5.3 (default 5.0); the rest are under **File → Export as**. See [export targets](../zh/spec/EXPORT_TARGETS.md) (Chinese).
+`Ctrl+G` exports Cubism formats for target versions 3.0 – 5.3 (default 5.0); the rest are under **File → Export as**. See [export targets](spec/EXPORT_TARGETS.md).
 
 > [!IMPORTANT]
 > To keep working, save the `.psd2live` project: it holds the source PSD, artwork, settings, every edit and the history branches. The `.psd2live.json` written with an export is only a diagnostic report. A successful export does not guarantee identical results in every runtime, so check the model in the target editor and runtime before delivery; see the [runtime and export reference](../zh/spec/RUNTIME_EXPORT_ARCHITECTURE_AND_GAPS.md) (Chinese).
@@ -210,7 +210,7 @@ The built-in renderer needs no official SDK. [Cubism native preview](guide/CUBIS
 </tr>
 </table>
 
-Format and evaluation rules: [runtime](../zh/spec/RUNTIME.md) and [`.p2lrt` 2.0 format](../zh/spec/P2LRT_V2.md) (Chinese).
+Format and evaluation rules: [runtime](spec/RUNTIME.md) and [`.p2lrt` 2.0 format](spec/P2LRT_V2.md).
 
 ## Connecting an agent (MCP)
 
@@ -218,7 +218,7 @@ Format and evaluation rules: [runtime](../zh/spec/RUNTIME.md) and [`.p2lrt` 2.0 
 2. Copy the command or configuration for your host (Claude Code, Codex, generic JSON). Stdio-only hosts use [`mcp_proxy.py`](../../mcp_proxy.py) at the repository root.
 3. Have the agent read the project with `workspace_overview` and single objects with `workspace_inspect`; operations not listed as tools are found with `workspace_list_operations` and called through `workspace_call`.
 
-`workspace_apply_edits` commits several edits atomically (all or nothing), and `workspace_preview_edits` dry-runs them first. Requests and examples are in the [MCP reference](../zh/agent/MCP_AUTHORING.md) (Chinese).
+`workspace_apply_edits` commits several edits atomically (all or nothing), and `workspace_preview_edits` dry-runs them first. Requests and examples are in the [MCP reference](agent/MCP_AUTHORING.md).
 
 > [!NOTE]
 > The MCP server does not generate images; new artwork requires image generation in the host. A callable tool does not make a complex modeling task reliable; [recorded evaluations](../zh/STATUS.md) keep both successes and failures.
@@ -247,12 +247,17 @@ Source builds use the built-in renderer; the official Cubism SDK must be obtaine
 
 ## Documentation
 
-| Using PSD2Live | Reference |
-| --- | --- |
-| [User guide](guide/USER_GUIDE.md) · [Development and CLI](guide/DEVELOPMENT.md) | [PSD preparation](spec/PSD_LAYER_SPEC.md) · [Deformers and parameters](spec/DEFORMER_AND_PARAMETER_SPEC.md) |
-| [Cubism native preview](guide/CUBISM_SDK_SETUP.md) · [CI and releases](guide/CUBISM_CI_RELEASE.md) | [Project format](spec/PROJECT_FORMAT.md) · [Implementation overview](spec/IMPLEMENTATION_COMPARISON.md) |
+| Getting started | Rigging and motion | Reference |
+| --- | --- | --- |
+| [User guide](guide/USER_GUIDE.md) | [Skeleton and poses](guide/SKELETON.md) | [PSD preparation](spec/PSD_LAYER_SPEC.md) |
+| [Canvas editing](guide/CANVAS_EDITOR.md) | [Swing generation](guide/SWING.md) | [Deformers and parameters](spec/DEFORMER_AND_PARAMETER_SPEC.md) |
+| [Materials and Layout](guide/LAYOUT.md) | [Physics](guide/PHYSICS.md) | [Layout manifest](spec/LAYOUT_MANIFEST.md) |
+| [Front/back layering](guide/DEPTH_SPLIT.md) | [Simulation and baking](guide/SIMULATION.md) | [Export targets](spec/EXPORT_TARGETS.md) |
+| [Texture upscaling](guide/TEXTURE_UPSCALE.md) | [Simulation tutorial](guide/SIMULATION_TUTORIAL.md) | [Runtime](spec/RUNTIME.md) |
+| [Deform paths](guide/DEFORM_PATHS.md) | [MCP usage and interface](agent/MCP_AUTHORING.md) | [`.p2lrt` 2.0 format](spec/P2LRT_V2.md) |
+| [Development and CLI](guide/DEVELOPMENT.md) · [Cubism native preview](guide/CUBISM_SDK_SETUP.md) · [CI and releases](guide/CUBISM_CI_RELEASE.md) |  | [Project format](spec/PROJECT_FORMAT.md) · [Implementation overview](spec/IMPLEMENTATION_COMPARISON.md) |
 
-Guides for canvas editing, skeletons, swing, physics, simulation and texture upscaling, and the export and runtime references, are currently in Chinese; see the [documentation index](../README.md). Example PSDs and outputs are in [examples](../../examples/readme.md); planned work is on the [roadmap](../zh/ROADMAP.md) (Chinese).
+The [documentation index](../README.md) lists every page, including the implementation notes that exist only in Chinese. Example PSDs and outputs are in [examples](../../examples/readme.md); planned work is on the [roadmap](../zh/ROADMAP.md) (Chinese).
 
 ## Contributing
 
@@ -269,6 +274,6 @@ Issues, reproducible PSDs, documentation fixes and code are welcome.
 | The application, the `umamo` engine, the Cubism and PSD export targets | [GPL-3.0](../../LICENSE) |
 | The neutral rig IR `format-model`, the export framework `format-compile`, the other export targets, the Rust runtime `runtime/` | MIT, reusable on their own |
 
-The application as a whole is released under GPL-3.0; see each module's `LICENSE` and the [module table](../zh/spec/EXPORT_TARGETS.md#模块) (Chinese). Third-party components are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md); example artwork has its own usage terms.
+The application as a whole is released under GPL-3.0; see each module's `LICENSE` and the [module table](spec/EXPORT_TARGETS.md#modules). Third-party components are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md); example artwork has its own usage terms.
 
 <sub>PSD2Live is an independent project, not affiliated with or endorsed by Live2D Inc. This repository does not contain or distribute proprietary Live2D Cubism SDK components. Live2D and Cubism are trademarks of Live2D Inc.</sub>

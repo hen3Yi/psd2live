@@ -1,5 +1,6 @@
 package io.github.psd2live.ui.state
 
+import io.github.psd2live.core.withRigEdits
 import io.github.psd2live.application.SessionRecovery
 
 import io.github.psd2live.application.PendingPoseCommit
@@ -132,6 +133,16 @@ import io.github.psd2live.ui.theme.ThemeCodec
 import kotlin.math.sin
 
 class PSD2LiveViewModel : AutoCloseable {
+	internal val interior by lazy {
+		InteriorController(
+			state = { _state.value },
+			backend = { workspaceBackend },
+			scope = scope,
+			editorFor = ::canvasEditorFor,
+			editVisibility = { editCanvasVisibility(it) },
+			setView = { zoom, x, y, canvas, mode -> setCanvasView(zoom, x, y, canvas, mode) },
+		)
+	}
     /** Transient hover input; changing it invalidates the canvas without writing document state. */
     private var parameterSnapshotHover by mutableStateOf<ParameterSnapshotPreview?>(null)
 
@@ -346,12 +357,19 @@ class PSD2LiveViewModel : AutoCloseable {
      * Playback, swing and stale panel values can name parameters the model no longer has or sit past a range, and the
      * shared geometry commands reject both, so the pose is kept to the model.
      */
-    internal fun canvasPose(current: PSD2LiveState, live: Map<ParameterId, Float> = livePose.value): Map<ParameterId, Float> {
-        val pose = shownPose(current, live) + swingPreviewValues
-        val parameters = current.previewModel?.rig?.puppet?.parameters ?: return pose
-        val known = parameters.mapTo(HashSet()) { it.id }
-        return io.github.psd2live.core.boundedPreviewPose(pose.filterKeys { it in known }, parameters)
-    }
+	internal fun canvasPose(
+		current: PSD2LiveState,
+		live: Map<ParameterId, Float> = livePose.value,
+	): Map<ParameterId, Float> {
+		val trial = interior.poseFor(current)
+		val pose = shownPose(current, live) + swingPreviewValues + trial
+		val parameters =
+			interior.modelFor(current)?.parameters
+				?: current.previewModel?.rig?.puppet?.parameters
+				?: return pose
+		val known = parameters.mapTo(HashSet()) { it.id }
+		return io.github.psd2live.core.boundedPreviewPose(pose.filterKeys { it in known }, parameters)
+	}
 
     internal fun applySwingPreview(preview: io.github.psd2live.application.WorkspaceSwingPreview) {
         val current = _state.value
@@ -3540,14 +3558,14 @@ class PSD2LiveViewModel : AutoCloseable {
 	/** Every physics group of the current model, as export sees it; see [PhysicsCatalog.groups]. */
 	fun physicsGroups(state: PSD2LiveState = _state.value): List<PhysicsGroup> {
 		val model = state.previewModel ?: return emptyList()
-		val key = listOf(model.analysis, model.rig.puppet.parameters, state.rigEdits.physicsEdits, state.rigEdits.disabledPhysicsIds, state.rigEdits.physicsOrder,
+		val key = listOf(model.analysis, model.rig.puppet, state.rigEdits.interiorEffects, state.rigEdits.physicsEdits, state.rigEdits.disabledPhysicsIds, state.rigEdits.physicsOrder,
 			state.rigEdits.skeleton, state.rigEdits.swingEdits, state.physicsFrontHair, state.physicsBackHair, state.physicsEyeJelly,
 			state.hairSimulationFront, state.hairSimulationBack, state.rigEdits.importedCmo3)
 		physicsCatalogCache?.let { (k, groups) -> if (k == key) return groups }
 		val groups = PhysicsCatalog.groups(if (state.rigEdits.importedCmo3 != null) PhysicsGenerator.Presets(false, false, false)
 			else PhysicsGenerator.Presets.present(model.analysis, state.hairSimulationFront, state.hairSimulationBack),
 			PhysicsGenerator.Presets(state.physicsFrontHair, state.physicsBackHair, state.physicsEyeJelly),
-			state.rigEdits, model.rig.puppet.parameters.mapTo(HashSet()) { it.id.raw })
+			state.rigEdits, model.rig.puppet.parameters.mapTo(HashSet()) { it.id.raw }, model.rig.puppet)
 		physicsCatalogCache = key to groups
 		return groups
 	}
@@ -6013,11 +6031,17 @@ class PSD2LiveViewModel : AutoCloseable {
 		kotlinx.serialization.json.buildJsonObject { put("id", id); put("width", width); put("height", height) })
 
 	/** Places material [id] on the canvas, centred at ([x], [y]) in canvas units, or at its own place when null. */
-	fun placeMaterial(id: String, x: Float? = null, y: Float? = null) = layoutEdit(tr("materials.placed"), io.github.psd2live.application.WorkspaceMaterialEdits.PLACE,
+	fun placeMaterial(id: String, x: Float? = null, y: Float? = null, reference: Boolean? = null) = layoutEdit(tr("materials.placed"), io.github.psd2live.application.WorkspaceMaterialEdits.PLACE,
 		kotlinx.serialization.json.buildJsonObject {
 			put("material_id", id)
 			if (x != null && y != null) put("at", kotlinx.serialization.json.buildJsonArray { add(kotlinx.serialization.json.JsonPrimitive(x)); add(kotlinx.serialization.json.JsonPrimitive(y)) })
+			if (reference != null) put("reference", reference)
 		})
+
+	/** Marks material items or folders to place as reference layers, or not (`material_mark_reference`). */
+	fun markMaterialsReference(ids: Collection<String>, reference: Boolean) = layoutEdit(
+		tr(if (reference) "materials.referenceMarked" else "materials.referenceUnmarked"), io.github.psd2live.application.WorkspaceMaterialEdits.MARK_REFERENCE,
+		kotlinx.serialization.json.buildJsonObject { put("ids", strings(ids)); put("reference", reference) })
 
 	/** Layer [layerId] shows material [materialId] over its unchanged rectangle: `layer_replace_image` with the material. */
 	fun replaceLayerWithMaterial(layerId: String, materialId: String) = layoutEdit(tr("materials.replaced"), "layer_replace_image",
@@ -6104,6 +6128,44 @@ class PSD2LiveViewModel : AutoCloseable {
 					if (add.isNotEmpty()) put("add", strings(add))
 					if (remove.isNotEmpty()) put("remove", strings(remove))
 				})), MutationAuthor.USER) }
+	}
+
+	/**
+	 * The selected layers the stack can move and that can be kept as reference: every layer before the first
+	 * generation, the layers placed since, the reference layers.
+	 */
+	fun reorderableSelection(state: PSD2LiveState = _state.value): List<String> {
+		val generation = state.layout.generation
+		return (listOfNotNull(state.selectedLayerId) + state.selectedLayerIds).distinct()
+			.filter { !generation.generated || it in generation.pendingLayerIds || it in state.layout.referenceLayerIds }
+	}
+
+	/** Keeps [layerIds] as reference layers or gives them back to the model (`layer_mark_reference`). */
+	fun markLayersReference(layerIds: Collection<String>, reference: Boolean) {
+		if (layerIds.isEmpty()) return
+		layoutEdit(tr(if (reference) "layers.reference.marked" else "layers.reference.unmarked", layerIds.size),
+			io.github.psd2live.application.WorkspaceLayoutEdits.MARK_REFERENCE,
+			kotlinx.serialization.json.buildJsonObject { put("layer_ids", strings(layerIds)); put("reference", reference) })
+	}
+
+	/**
+	 * Toggles the selected layers between reference and model: all of them back to the model when every one is a
+	 * reference, else all of them to reference. False when none can change.
+	 */
+	fun toggleSelectedLayersReference(): Boolean {
+		val ids = reorderableSelection()
+		if (ids.isEmpty()) return false
+		markLayersReference(ids, !ids.all { it in _state.value.layout.referenceLayerIds })
+		return true
+	}
+
+	/** Moves the selected layers in the stack ([to]: front, forward, backward, back) with `layer_reorder`; false when none can move. */
+	fun reorderSelectedLayers(to: String): Boolean {
+		val ids = reorderableSelection()
+		if (ids.isEmpty()) return false
+		layoutEdit(tr("layers.reorder.summary", ids.size), io.github.psd2live.application.WorkspaceLayoutEdits.REORDER,
+			kotlinx.serialization.json.buildJsonObject { put("layer_ids", strings(ids)); put("to", to) })
+		return true
 	}
 
 	/** A layer's variant (none, toggle, switch): the same `layer_set_variant` edit MCP makes. */
@@ -6656,14 +6718,18 @@ class PSD2LiveViewModel : AutoCloseable {
         val rawInput = _state.value.inputPath.trim()
         if (rawInput.isEmpty()) { updateState { it.copy(errorMessage = tr("dialog.inputRequired")) }; return }
         val input = Path.of(rawInput)
-        if (!Files.isRegularFile(input) || !input.fileName.toString().endsWith(".psd", true)) {
+        val name = input.fileName.toString()
+        // A layout manifest (or a zip holding one) opens as a Layout project to arrange before generating.
+        val layout = name.endsWith(".json", true) || name.endsWith(".zip", true)
+        if (!Files.isRegularFile(input) || !(layout || name.endsWith(".psd", true))) {
             updateState { it.copy(errorMessage = tr("dialog.inputInvalid", input)) }; return
         }
+        val path = input.toAbsolutePath().normalize().toString()
         startWorkspaceImport(discardUnsaved, tr("status.analyzing"), afterImport = {
-            applyStartPresets(startChoices)
+            if (!layout) applyStartPresets(startChoices)
             leaveStartPage()
-            openWorkspacePreset(WorkspacePreset.EDIT)
-        }) { it.importPsd(input.toAbsolutePath().normalize().toString(), discardUnsaved) }
+            openWorkspacePreset(if (layout) WorkspacePreset.LAYOUT else WorkspacePreset.EDIT)
+        }) { if (layout) it.importLayout(path, discardUnsaved) else it.importPsd(path, discardUnsaved) }
     }
 
     /** Both adapters invoke the same application source capability; only this entry owns GUI confirmation. */
@@ -7575,6 +7641,7 @@ class PSD2LiveViewModel : AutoCloseable {
 
 	override fun close() {
 		if (!isClosed.compareAndSet(false, true)) return
+        interior.close()
         meshSplitCheck.cancel()
 		motionJob?.cancel()
 		previewRebuildJob?.cancel()

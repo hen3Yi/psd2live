@@ -31,7 +31,7 @@ internal object WorkspaceJobResultSchemas {
     private val psdExport = s.obj(mapOf("state" to s.handle(), "path" to s.handle(), "bytes" to s.integer(0), "layers" to s.integer(0)))
 
     private val results = linkedMapOf(
-        "project_import_psd" to source, "project_create_artwork" to source, "project_import_cmo3" to lifecycle,
+        "project_import_psd" to source, "project_create_artwork" to source, "project_import_cmo3" to lifecycle, "project_import_layout" to lifecycle,
         "project_open" to lifecycle, "project_save" to lifecycle, "project_save_as" to lifecycle,
         "project_export_model" to modelExport, "project_export_target" to targetExport, "project_export_psd" to psdExport, "workspace_apply_edits" to batch,
         "workspace_preview_edits" to WorkspaceGeometrySafetySchemas.preview,
@@ -41,6 +41,8 @@ internal object WorkspaceJobResultSchemas {
         put(WorkspaceLayoutOperations.EXPORT_PSD, psdExport)
         put(WorkspaceLayoutOperations.EXPORT_PNG, WorkspaceLayoutOperations.pngSchema)
         put("project_create", lifecycle)
+        put("interior_put", requireNotNull(WorkspaceAuthoringResultSchemas.forOperation("interior_put")))
+        put("interior_delete", requireNotNull(WorkspaceAuthoringResultSchemas.forOperation("interior_delete")))
         put("preview_pose", requireNotNull(WorkspaceAuthoringResultSchemas.forOperation("preview_pose")))
         put("paint_session_commit", WorkspacePaintSessionSchemas.commit)
         put("swing_preview", WorkspaceSwingSessionSchemas.result)

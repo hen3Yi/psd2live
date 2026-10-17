@@ -8,6 +8,10 @@ This page covers source preparation. Automatic classification is a starting poin
 
 Use a layered RGB, 8-bit PSD with transparency. Rasterize text, vectors and layer effects you need, and merge adjustment effects into the relevant pixels. Keep the body approximately upright. A small initial head tilt is supported by estimation, but inspect the result.
 
+## Without a PSD: layout manifests
+
+Parts split by a program, such as AI layer decomposition, can reach PSD2Live without a PSD, as a [layout manifest](LAYOUT_MANIFEST.md): a JSON file, or a zip holding it at its root, that lists each layer's image, canvas rectangle, stacking order, group, tags and variant, and whether it is only a reference (such as the picture the parts were split from: shown on the canvas, never generated or exported). Small parts may carry more pixels than the canvas gives them; opening the manifest gives a laid-out project that is not generated yet. Layers without tags are recognised by the naming rules on this page.
+
 ## Separate parts
 
 Separate eye whites, irises and upper lashes. Preserve the hidden part of each iris. The upper-lash rig is not intended for combined lower eyelid lines, even if a lower-lash name is recognized; inspect or classify such details separately.

@@ -23,6 +23,11 @@ data class WorkspaceLayout(
 	val reference: LayoutReference? = null,
 	/** What every vector drawing shares: colour tokens, class rules and definitions ([DrawingKit]). */
 	val drawingKit: DrawingKit? = null,
+	/**
+	 * Source layers kept as reference, by layer ID: they stay in the stack and on the canvas, but the generators never
+	 * read them, so the rig and every export leave them out. Only layers the generator has not read become reference.
+	 */
+	val referenceLayerIds: Set<String> = emptySet(),
 ) {
 	val isEmpty: Boolean get() = this == Empty
 
@@ -31,6 +36,7 @@ data class WorkspaceLayout(
 		layerTags = layerTags.filterKeys { it in layerIds },
 		layerMaterials = layerMaterials.filterKeys { it in layerIds },
 		generation = generation.retaining(layerIds),
+		referenceLayerIds = referenceLayerIds.filterTo(LinkedHashSet()) { it in layerIds },
 	)
 
 	companion object {
@@ -122,6 +128,8 @@ data class MaterialItem(
 	val visible: Boolean = true,
 	val placementWidth: Int = 0,
 	val placementHeight: Int = 0,
+	/** Placed as a reference layer unless the placement says otherwise ([WorkspaceLayout.referenceLayerIds]). */
+	val reference: Boolean = false,
 ) {
 	init {
 		require(kind != MaterialKind.VECTOR || svg != null) { "A vector material keeps its drawing" }
@@ -167,7 +175,8 @@ internal object WorkspaceLayoutCodec {
 	const val MATERIALS = "materials"
 
 	fun encodeLayout(layout: WorkspaceLayout): JsonObject? {
-		if (layout.layerTags.isEmpty() && layout.layerMaterials.isEmpty() && layout.generation == WorkspaceGeneration.Generated && layout.reference == null && layout.drawingKit == null) return null
+		if (layout.layerTags.isEmpty() && layout.layerMaterials.isEmpty() && layout.generation == WorkspaceGeneration.Generated && layout.reference == null && layout.drawingKit == null &&
+			layout.referenceLayerIds.isEmpty()) return null
 		return buildJsonObject {
 			if (layout.layerTags.isNotEmpty()) putJsonObject("layerTags") {
 				layout.layerTags.toSortedMap().forEach { (id, tags) -> putJsonArray(id) { tags.sorted().forEach { add(JsonPrimitive(it)) } } }
@@ -195,6 +204,7 @@ internal object WorkspaceLayoutCodec {
 				if (kit.styles.isNotEmpty()) put("styles", kit.styles)
 				if (kit.defs.isNotEmpty()) put("defs", kit.defs)
 			} }
+			if (layout.referenceLayerIds.isNotEmpty()) putJsonArray("referenceLayerIds") { layout.referenceLayerIds.sorted().forEach { add(JsonPrimitive(it)) } }
 		}
 	}
 
@@ -223,6 +233,7 @@ internal object WorkspaceLayoutCodec {
 					if (item.origin.isNotEmpty()) put("origin", item.origin)
 					if (item.opacity != 1f) put("opacity", item.opacity)
 					if (!item.visible) put("visible", false)
+					if (item.reference) put("reference", true)
 				} }
 			}
 		}
@@ -264,6 +275,7 @@ internal object WorkspaceLayoutCodec {
 						visible = item["visible"]?.jsonPrimitive?.boolean ?: true,
 						placementWidth = item["placementCanvas"]?.jsonArray?.get(0)?.jsonPrimitive?.int ?: 0,
 						placementHeight = item["placementCanvas"]?.jsonArray?.get(1)?.jsonPrimitive?.int ?: 0,
+						reference = item["reference"]?.jsonPrimitive?.boolean ?: false,
 					)
 				},
 			)
@@ -282,6 +294,7 @@ internal object WorkspaceLayoutCodec {
 				DrawingKit(value["colors"]?.jsonObject?.mapValues { it.value.jsonPrimitive.content }.orEmpty(),
 					value["styles"]?.jsonPrimitive?.content.orEmpty(), value["defs"]?.jsonPrimitive?.content.orEmpty())
 			},
+			referenceLayerIds = strings(layout?.get("referenceLayerIds")),
 		)
 	}
 

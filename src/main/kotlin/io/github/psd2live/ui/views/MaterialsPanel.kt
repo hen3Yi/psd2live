@@ -442,7 +442,14 @@ internal fun MaterialsPanel(state: PSD2LiveState, vm: PSD2LiveViewModel) {
 				if (item != null) add(MenuLine.Action(tr("materials.menu.edit"), { close(); vm.openMaterialEditor(item.id) }))
 				if (folder != null) add(MenuLine.Action(tr("materials.menu.open"), { close(); folderId = folder.id; query = "" },
 					trailing = fileKind(folder)))
+				// Placing follows each item's reference mark; the other row places the opposite way once.
+				val items = item?.let(::listOf) ?: library.subtree(folder!!.id).let { folders -> library.items.filter { it.folderId in folders } }
+				val marked = items.isNotEmpty() && items.all { it.reference }
 				add(MenuLine.Action(tr("materials.menu.place"), { close(); vm.placeMaterial(target) }))
+				add(MenuLine.Action(tr(if (marked) "materials.menu.placeAsModel" else "materials.menu.placeAsReference"),
+					{ close(); vm.placeMaterial(target, reference = !marked) }, enabled = items.isNotEmpty()))
+				add(MenuLine.Action(tr(if (marked) "materials.menu.unmarkReference" else "materials.menu.markReference"),
+					{ close(); vm.markMaterialsReference(listOf(target), !marked) }, enabled = items.isNotEmpty()))
 				val layer = state.selectedLayerId
 				if (item != null && layer != null) add(MenuLine.Action(tr("materials.menu.replace"), { close(); vm.replaceLayerWithMaterial(layer, item.id) }))
 				if (item != null) {
@@ -650,7 +657,7 @@ private fun MaterialTile(entry: MaterialEntry, size: Dp, selected: Boolean, drop
 	val tip = when (entry) {
 		is MaterialEntry.Folder -> listOfNotNull(entry.folder.origin.takeIf { it.isNotEmpty() }, tr("materials.folder.openHint", count)).joinToString("\n")
 		is MaterialEntry.Item -> listOfNotNull(entry.name, "${entry.item.raster.width}×${entry.item.raster.height}", entry.item.origin.substringBefore('#').takeIf { it.isNotEmpty() },
-			tr("materials.item.openHint")).joinToString("\n")
+			tr("materials.item.referenceHint").takeIf { entry.item.reference }, tr("materials.item.openHint")).joinToString("\n")
 	}
 	io.github.psd2live.ui.views.texture.BarTooltip(tip) {
 		Column(target.padding(3.dp).clip(shape)
@@ -669,6 +676,9 @@ private fun MaterialTile(entry: MaterialEntry, size: Dp, selected: Boolean, drop
 				}
 				if (references > 0) Text("$references", color = colors.selectionText, fontSize = 9.sp,
 					modifier = Modifier.align(Alignment.TopEnd).padding(2.dp).clip(RoundedCornerShape(6.dp)).background(colors.accent).padding(horizontal = 4.dp))
+				// Placed as a reference layer by default.
+				if (entry is MaterialEntry.Item && entry.item.reference) Box(Modifier.align(Alignment.TopStart).padding(2.dp).clip(RoundedCornerShape(3.dp))
+					.background(colors.panelElevated.copy(alpha = 0.85f)).padding(1.dp)) { IconReferenceImage(colors.accent, 10.dp) }
 				if (entry is MaterialEntry.Item && entry.item.kind == MaterialKind.VECTOR) Text("SVG", color = colors.textMuted, fontSize = 8.sp,
 					modifier = Modifier.align(Alignment.BottomStart).padding(2.dp).background(colors.panelElevated.copy(alpha = 0.8f)).padding(horizontal = 2.dp))
 			}
@@ -698,6 +708,7 @@ private fun MaterialRow(entry: MaterialEntry, selected: Boolean, dropping: Boole
 		Text(entry.name, color = text, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
 		when (entry) {
 			is MaterialEntry.Item -> {
+				if (entry.item.reference) io.github.psd2live.ui.views.texture.BarTooltip(tr("materials.item.referenceHint")) { IconReferenceImage(colors.accent, 12.dp) }
 				Text(if (entry.item.kind == MaterialKind.VECTOR) "SVG" else tr("materials.kind.bitmap"), color = colors.textMuted, fontSize = 10.sp)
 				Text("${entry.item.raster.width}×${entry.item.raster.height}", color = colors.textMuted, fontSize = 10.sp)
 				Text(if (references > 0) tr("materials.references", references) else tr("materials.unused"), color = colors.textMuted, fontSize = 10.sp)

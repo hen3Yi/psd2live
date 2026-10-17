@@ -49,6 +49,18 @@ internal class WorkspaceOperations(private val workspace: WorkspaceBackend,
                     request["discard_unsaved"]?.jsonPrimitive?.boolean ?: false).lifecycleResult()
             }
         }
+        register("project_import_layout", "Create a new Layout project, not generated yet, from a PSD2Live layout manifest: an absolute path to the manifest JSON " +
+            "(format \"${LayoutManifest.FORMAT}\"), or to a zip archive holding it at its root beside the images. Each image keeps its pixels over the rect " +
+            "the manifest gives it; layers keep the manifest's back-to-front order, groups, tags, variants, visibility and opacity, and are also materials. " +
+            "Arrange them (layer_place, layer_reorder, layer_tag), then generate with rig_generate. Unsaved changes are rejected unless discard_unsaved=true. " +
+            "Returns a process-owned job handle.",
+            schema(mapOf("path" to string(), "discard_unsaved" to buildJsonObject { put("type", "boolean") }), listOf("path")),
+            WorkspaceOperationKind.PROJECT, jobBacked = true) { request ->
+            val path = absolutePath(request.text("path"))
+            start("project_import_layout", allowUnloaded = true) {
+                workspace.importLayout(path.toString(), request["discard_unsaved"]?.jsonPrimitive?.boolean ?: false).lifecycleResult()
+            }
+        }
         register("project_import_cmo3", "Import an authored CMO3 file from an absolute local path. mode=new creates a new project and rejects unsaved changes unless discard_unsaved=true; mode=replace updates matching object IDs and retains absent objects in the current project as one history step. Imported content does not run PSD rig or motion presets. Returns a process-owned job handle.",
             schema(mapOf("path" to string(), "mode" to buildJsonObject {
                 put("type", "string"); put("enum", JsonArray(listOf("new", "replace").map(::JsonPrimitive)))

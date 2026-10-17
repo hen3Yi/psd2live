@@ -79,6 +79,9 @@ internal fun WorkspaceQueries.inspect(a: JsonObject): JsonObject {
             }
             "physics" -> { put("fps", queries.physicsFps()); put("groups", JsonArray(queries.listPhysics().map { it.toJson() })) }
             "swings" -> put("swings", JsonArray(queries.listSwings().map { it.toJson() }))
+            "interiors" -> put("effects", JsonArray(queries.listInteriorEffects().map { effect ->
+                JsonObject(effect.configuration() + ("issue" to (queries.currentPuppet()?.let(effect::issue)?.let(::JsonPrimitive) ?: JsonNull)))
+            }))
             "simulations" -> {
                 val puppet = queries.currentPuppet()
                 // The bake's arrays stay out; its summary and whether it is stale are what a caller acts on.
@@ -100,12 +103,15 @@ internal fun WorkspaceQueries.inspect(a: JsonObject): JsonObject {
                 else -> {
                     val generation = layout.layout.generation
                     put("generated", generation.generated)
-                    putJsonArray("pending_layers") { layout.pendingLayerIds.sorted().forEach { add(JsonPrimitive(it)) } }
+                    // Reference layers are shown without generating them too, but never wait for a generation.
+                    val references = layout.layout.referenceLayerIds
+                    putJsonArray("pending_layers") { (layout.pendingLayerIds - references).sorted().forEach { add(JsonPrimitive(it)) } }
                     putJsonArray("pending_classifications") { generation.pendingClassifications.toSortedMap().forEach { (id, value) -> addJsonObject {
                         put("layer_id", id); put("role", value.tag.name.lowercase()); put("side", value.side.name.lowercase())
                         put("type", value.type.name.lowercase()); put("parameter", value.parameter); put("switch_id", value.switchId)
                     } } }
                     putJsonArray("refreshable") { generation.refreshLayerIds.sorted().forEach { add(JsonPrimitive(it)) } }
+                    putJsonArray("reference_layers") { references.filter { it in layout.pendingLayerIds }.sorted().forEach { add(JsonPrimitive(it)) } }
                 }
             }
             "preview" -> put("preview", queries.previewSession())

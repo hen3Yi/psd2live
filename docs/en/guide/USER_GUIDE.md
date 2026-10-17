@@ -58,7 +58,7 @@ Every layer has three sizes: the rectangle it covers on the canvas (canvas units
 - **Texture panel** (right): Canvas → Source → Atlas cards show the selected layer's canvas rectangle, source pixels and tile size, with the effective density marked on the heat scale. The **Texture density** slider and the ½× / 2× / reset buttons set the multiplier (atlas pixels per source pixel, 1/64–16, applied to the whole selection), **Lock size** keeps a layer's size when the atlas has to shrink, and with one layer selected **Turn** types its tile's angle (**Upright** resets it), into the session like a turn on the page. **Replace image…** replaces the pixels at any resolution, keeping the canvas rectangle, with Stretch or Contain and an optional mesh rebuild; **Texture upscale…** opens the project's upscale settings. The exact canvas rectangle is folded away under **Exact canvas rectangle**. With nothing selected the panel shows the atlas summary - each page's size, tiles and fill, the free space, the video memory the pages take (RGBA), the locked tiles and the fit with what it means - and the budget, which waits for an open session too. The export dialog only summarizes the atlas and links to the Texture workspace; the alpha threshold moved to the mesh panel's global settings.
 - **Source pixels preview**: **Source pixels** on an edit canvas's bottom-right view rail makes that canvas sample each layer's own raster instead of its atlas tile, to compare against the packed sharpness. It is saved per canvas and draws that canvas in software while on; the preview canvas (Cubism or PSD2Live runtime) and exports always use atlas pixels.
 
-Moving the canvas rectangle, or replacing an image with a mesh rebuild, is refused for layers with authored edits, bindings or materialized meshes; the reason shows above the atlas page. Every change is one history node and can be undone. The matching Agent operations are listed in the Chinese [MCP_AUTHORING.md](../../zh/agent/MCP_AUTHORING.md#纹理与纹理集).
+Moving the canvas rectangle, or replacing an image with a mesh rebuild, is refused for layers with authored edits, bindings or materialized meshes; the reason shows above the atlas page. Every change is one history node and can be undone. The matching Agent operations are listed in [MCP_AUTHORING.md](../agent/MCP_AUTHORING.md#textures-and-atlases).
 
 ## Tutorial paths
 
@@ -70,7 +70,7 @@ The catalog has 20 topics. The beginner path contains the 19 lessons below; the 
 | 2 | Workspace | Edit changes the model; Preview shows it; History restores versions. Each canvas tab has its own camera and overlays. |
 | 3 | Hierarchy and mode bar | Select, search and reparent objects. Drop transparent artwork on the tree and confirm placement. Drawing order and parent deformation are different. |
 | 4 | Variants | None rigs the part its tags name; toggle variants show/hide; switch variants share a parameter with different IDs. |
-| 5 | Materials and layout | Start a Layout project or import a PSD, import and organise materials, drag them onto the canvas, tag the parts and Generate; place more, retag and Regenerate later while your edits stay. See [materials and Layout](../../zh/guide/LAYOUT.md) (Chinese). |
+| 5 | Materials and layout | Start a Layout project or import a PSD, import and organise materials, drag them onto the canvas, tag the parts and Generate; place more, retag and Regenerate later while your edits stay. See [materials and Layout](LAYOUT.md). |
 | 6 | Parameters and keyforms | Drag sliders or XY controls; right-click a key mark to snap. Move to the target key before editing its keyform. |
 | 7 | Object mode | Select objects with the canvas tools or hierarchy; selection alone changes no geometry. |
 | 8 | Create deformers | Select a target, use the toolbar's Create group or the tree context menu, adjust the placement preview and confirm. |
@@ -88,7 +88,7 @@ The catalog has 20 topics. The beginner path contains the 19 lessons below; the 
 
 ## Important distinctions
 
-For hair and clothing simulation, pin weights, baking and checking the export, see the [illustrated simulation tutorial (Chinese)](../../zh/guide/SIMULATION_TUTORIAL.md).
+For hair and clothing simulation, pin weights, baking and checking the export, see the [illustrated simulation tutorial](SIMULATION_TUTORIAL.md).
 
 - **Save and export**: saving preserves the workspace and history; exporting delivers the model files the target software uses. `.psd2live.json` is a report, not a project. A CMO3 export also writes the model's motions to a `.can3` of the same name, which Cubism Editor's Animator opens and edits on the cmo3; keep both in the same folder and from the same export.
 - **Export complete**: when an export finishes (Live2D model, PSD or any Export as format), its dialog closes and **Export complete** shows where the files went, with the warnings or what the format could not keep, and offers **Open folder**. After **Close and don't show again**, exports report only in the log and status bar; **Settings › Prompts** lists every window with "Don't show again" (the start screen after an import too), to turn each back on or **Show all prompts again**.
@@ -98,7 +98,7 @@ For hair and clothing simulation, pin weights, baking and checking the export, s
 
 ### Front/back layers: passing one layer through another part
 
-Say a collar is one layer but has to read "back collar → neck → front collar": right-click the collar in the hierarchy and choose **Front/back layers…**, or select the collar and the neck and right-click the collar for **Split "collar" into front/back layers**. Two new layers take the original's place, the front one glued to follow the back one; then erase the back collar from the front layer and apply. Step-by-step screenshots and details are in the [illustrated front/back layering tutorial (Chinese)](../../zh/guide/DEPTH_SPLIT.md).
+Say a collar is one layer but has to read "back collar → neck → front collar": right-click the collar in the hierarchy and choose **Front/back layers…**, or select the collar and the neck and right-click the collar for **Split "collar" into front/back layers**. Two new layers take the original's place, the front one glued to follow the back one; then erase the back collar from the front layer and apply. Step-by-step screenshots and details are in the [illustrated front/back layering tutorial](DEPTH_SPLIT.md).
 
 ## Generated results and old records
 
@@ -142,7 +142,7 @@ These are the default (Photoshop-style) bindings. **Settings** can switch to Ble
 
 When reporting a problem, include the version, operating system, steps to reproduce and the relevant files.
 
-Further reading: [SDK setup](CUBISM_SDK_SETUP.md), [development and CLI](DEVELOPMENT.md), [project format](../spec/PROJECT_FORMAT.md), and the Chinese references for [canvas editing](../../zh/guide/CANVAS_EDITOR.md), [materials and Layout](../../zh/guide/LAYOUT.md), [paths](../../zh/guide/DEFORM_PATHS.md), [skeleton and poses](../../zh/guide/SKELETON.md), [physics](../../zh/guide/PHYSICS.md), [simulation and baking](../../zh/guide/SIMULATION.md), [upscaling](../../zh/guide/TEXTURE_UPSCALE.md) and [MCP](../../zh/agent/MCP_AUTHORING.md).
+Further reading: [SDK setup](CUBISM_SDK_SETUP.md), [development and CLI](DEVELOPMENT.md), [project format](../spec/PROJECT_FORMAT.md), [canvas editing](CANVAS_EDITOR.md), [materials and Layout](LAYOUT.md), [paths](DEFORM_PATHS.md), [skeleton and poses](SKELETON.md), [physics](PHYSICS.md), [simulation and baking](SIMULATION.md), [upscaling](TEXTURE_UPSCALE.md) and [MCP](../agent/MCP_AUTHORING.md).
 
 For Cubism terms and workflows, see Live2D's official [Cubism tutorials](https://docs.live2d.com/en/cubism-editor-tutorials/top/), [parameters](https://docs.live2d.com/en/cubism-editor-manual/parameter/), [blend shapes](https://docs.live2d.com/en/cubism-editor-manual/blend-shape/) and [embedded-data export](https://docs.live2d.com/en/cubism-editor-manual/export-moc3-motion3-files/). PSD2Live's interface and modeling aids are not Cubism Editor; the in-app tutorials remain the reference for its operation.
 

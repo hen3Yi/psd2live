@@ -125,6 +125,8 @@ object WorkspaceViewRenderer {
 			.associate { it.source.id.raw to texelsPerUnit(it.source) }
 		var difference: Float? = null
 		if (reference?.mode == WorkspaceViewReferenceMode.UNDER) paintReference(image, reference, target.viewport)
+		// Reference layers lie under the model, as edit canvases draw them by default; a difference compares the model alone.
+		if (reference?.mode != WorkspaceViewReferenceMode.DIFFERENCE) paintReferenceLayers(image, model, geometry, target.viewport, includeLayerIds)
 		val graphics = image.createGraphics()
 		try {
 			graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
@@ -270,6 +272,36 @@ object WorkspaceViewRenderer {
 		g.fillRect(x - 2, y - metrics.ascent - 1, metrics.stringWidth(text) + 4, metrics.ascent + metrics.descent + 2)
 		g.color = color
 		g.drawString(text, x, y)
+	}
+
+	/** [model]'s reference layers in [included], back to front, each image over where [geometry] puts its quad, at its opacity. */
+	private fun paintReferenceLayers(image: BufferedImage, model: RigPreviewModel, geometry: org.umamo.render.eval.DeformedGeometry,
+	                                 viewport: CanvasViewport, included: Set<String>) {
+		val ids = model.referenceLayerIds.filter { it in included }.toSet()
+		if (ids.isEmpty()) return
+		val quadOf = model.rig.puppet.drawables.associateBy { model.rig.layerIdByDrawableId[it.id.raw] }
+		val g = image.createGraphics()
+		try {
+			g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+			for (layer in model.analysis.source.layers.filter { it.id.raw in ids }.sortedByDescending { it.order }) {
+				val quad = quadOf[layer.id.raw] ?: continue
+				val world = geometry.worldPositions[quad.id] ?: continue
+				val raster = layer.raster
+				if (raster.width <= 0 || raster.height <= 0) continue
+				val pixels = BufferedImage(raster.width, raster.height, BufferedImage.TYPE_INT_ARGB)
+				val argb = IntArray(raster.width * raster.height) { i ->
+					val o = i * 4
+					((raster.rgba[o + 3].toInt() and 0xFF) shl 24) or ((raster.rgba[o].toInt() and 0xFF) shl 16) or
+						((raster.rgba[o + 1].toInt() and 0xFF) shl 8) or (raster.rgba[o + 2].toInt() and 0xFF)
+				}
+				pixels.setRGB(0, 0, raster.width, raster.height, argb, 0, raster.width)
+				fun sx(i: Int) = viewport.x(world[i * 2])
+				fun sy(i: Int) = viewport.yFromWorld(world[i * 2 + 1])
+				val w = raster.width.toDouble(); val h = raster.height.toDouble()
+				g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (geometry.opacity[quad.id] ?: quad.opacity).coerceIn(0f, 1f))
+				g.drawImage(pixels, AffineTransform((sx(1) - sx(0)) / w, (sy(1) - sy(0)) / w, (sx(3) - sx(0)) / h, (sy(3) - sy(0)) / h, sx(0), sy(0)), null)
+			}
+		} finally { g.dispose() }
 	}
 
 	/** [reference] drawn over [image] at its opacity, where it sits on the canvas. */

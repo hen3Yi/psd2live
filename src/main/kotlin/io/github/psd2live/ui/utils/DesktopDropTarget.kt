@@ -275,6 +275,7 @@ object DesktopDropTarget {
 	 * Resolves a list of dropped files into a typed action:
 	 * - .psd2live project -> OpenProject
 	 * - .psd file -> OpenPsd (attaching any companion directory as output directory)
+	 * - layout manifest (.json, or a .zip holding one) -> OpenPsd, opened as a Layout project
 	 * - directory -> searches inside for .psd2live or .psd; if neither, treats as output directory
 	 * - others -> Unsupported
 	 */
@@ -294,6 +295,13 @@ object DesktopDropTarget {
 		if (psdFile != null) {
 			val companionDir = files.firstOrNull { it.isDirectory }
 			return DroppedAction.OpenPsd(psdFile, companionDir)
+		}
+
+		// A layout manifest opens as a Layout project; any other JSON or zip stays unsupported.
+		val manifest = files.firstOrNull { it.isFile && (it.extension.equals("json", ignoreCase = true) || it.extension.equals("zip", ignoreCase = true)) &&
+			io.github.psd2live.application.LayoutManifest.matches(it.toPath().toAbsolutePath()) }
+		if (manifest != null) {
+			return DroppedAction.OpenPsd(manifest, null)
 		}
 
 		// 3. Check for dropped directory

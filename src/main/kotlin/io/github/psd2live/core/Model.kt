@@ -511,6 +511,11 @@ data class RigPreviewModel(
 	val layoutBase: RigPreviewModel? = null,
 	/** A placement preview of a project not yet generated: plain meshes, no rig to edit or export. */
 	val layoutPreview: Boolean = false,
+	/**
+	 * The reference layers this model shows as bare quads: the artwork pass skips them and the canvas draws their
+	 * pixels on their own, under or over the model. Never in [layoutBase], so never generated or exported.
+	 */
+	val referenceLayerIds: Set<String> = emptySet(),
 ) {
 	/** The model generation and export read: [layoutBase] when this one shows pending layers, else this one. */
 	val generated: RigPreviewModel get() = layoutBase ?: this

@@ -35,16 +35,18 @@ internal object WorkspaceGenerationEdits {
         val layout = document.layout
         val generation = layout.generation
         if (!generation.generated) {
-            require(document.source.layers.any { it.id.raw !in document.deletedLayerIds }) { "Place a layer before generating the rig" }
+            require(document.source.layers.any { it.id.raw !in document.deletedLayerIds && it.id.raw !in layout.referenceLayerIds }) {
+                "Place a layer that is not a reference before generating the rig" }
             // The first generation reads every layer as it is now.
             return document.copy(layout = layout.copy(generation = WorkspaceGeneration.Generated),
                 layerOverrides = document.layerOverrides + generation.pendingClassifications, generationSource = null, meshSource = null)
         }
-        val pending = WorkspaceLayoutPreview.pendingIds(document)
+        // The reference layers stay out of every generation.
+        val pending = WorkspaceLayoutPreview.pendingIds(document) - layout.referenceLayerIds
         val refreshed = (refresh ?: generation.refreshLayerIds).toSet()
         refreshed.forEach { id ->
             require(document.source.layers.any { it.id.raw == id } && id !in document.deletedLayerIds) { "Layer not found: $id" }
-            require(id !in pending) { "Layer $id has not been generated yet" }
+            require(id !in pending && id !in layout.referenceLayerIds) { "Layer $id has not been generated yet" }
         }
         if (pending.isEmpty() && generation.pendingClassifications.isEmpty() && refreshed.isEmpty()) return document
         // Absent from the frozen generation input, a layer generates from its current pixels.
@@ -151,7 +153,7 @@ internal object WorkspaceGenerationEdits {
             meshOverrides = document.meshOverrides - id, textureOverrides = document.textureOverrides - id,
             layout = layout.copy(layerTags = layout.layerTags - id, layerMaterials = layout.layerMaterials - id,
                 generation = generation.copy(pendingLayerIds = generation.pendingLayerIds - id,
-                    pendingClassifications = generation.pendingClassifications - id)),
+                    pendingClassifications = generation.pendingClassifications - id), referenceLayerIds = layout.referenceLayerIds - id),
         )
     }
 

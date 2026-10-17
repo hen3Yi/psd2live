@@ -72,6 +72,7 @@ interface WorkspaceQueries : WorkspaceStatePort {
     /** Plays [motions] through baked simulation [id] and its reference and reports how the bake follows; read-only. */
     fun compareSimulation(id: String, motions: List<String>, progress: (Float) -> Unit = noSamplingProgress,
                           cancelled: () -> Boolean = noSamplingCancellation): JsonObject
+    fun listInteriorEffects(): List<io.github.psd2live.core.interior.NativeInteriorEffect> = emptyList()
     fun listSwings(): List<RigSwingEdit>
     /** Generated overrides of the captured model that did not apply as recorded, in journal order. */
     fun generatedOverrideIssues(): List<io.github.psd2live.core.GeneratedOverrideIssue>
@@ -110,6 +111,8 @@ interface WorkspaceSourcePort {
     /** Import a complete file batch as editable artwork in one history node. */
     suspend fun importImages(state: String, paths: List<java.nio.file.Path>, parentDeformerId: String?): WorkspaceMutationResult
     suspend fun importPsd(path: String, discardUnsaved: Boolean = false): WorkspaceMutationResult
+    /** A new Layout project, not generated yet, from a layout manifest or a zip holding one ([LayoutManifest]). */
+    suspend fun importLayout(path: String, discardUnsaved: Boolean = false): WorkspaceMutationResult
     suspend fun importCmo3(path: java.nio.file.Path, mode: Cmo3ImportMode,
                            discardUnsaved: Boolean = false): WorkspaceMutationResult
     suspend fun createArtwork(arguments: JsonObject): WorkspaceMutationResult

@@ -63,15 +63,16 @@ object NativeFilePicker {
 	}
 
 	/**
-	 * Opens the modern native OS file picker for selecting a PSD file.
+	 * Opens the modern native OS file picker for selecting a PSD file or a layout manifest (JSON, or a zip holding one).
 	 */
 	fun choosePsdFile(window: Window? = null, initialPath: String? = null): String? =
-		chooseSourceFile(window, initialPath, "psd", tr("dialog.choosePsd"), tr("dialog.psdFilter"))
+		chooseSourceFile(window, initialPath, listOf("psd", "json", "zip"), tr("dialog.choosePsd"), tr("dialog.psdFilter"))
 
 	fun chooseCmo3File(window: Window? = null, initialPath: String? = null): String? =
-		chooseSourceFile(window, initialPath, "cmo3", tr("cmo3.chooseFile"), "Cubism model (*.cmo3)")
+		chooseSourceFile(window, initialPath, listOf("cmo3"), tr("cmo3.chooseFile"), "Cubism model (*.cmo3)")
 
-	private fun chooseSourceFile(window: Window?, initialPath: String?, extension: String, title: String, filterLabel: String): String? {
+	private fun chooseSourceFile(window: Window?, initialPath: String?, extensions: List<String>, title: String, filterLabel: String): String? {
+		fun accepted(name: String) = extensions.any { name.endsWith(".$it", ignoreCase = true) }
 		if (!isPicking.compareAndSet(false, true)) {
 			focusOpenPicker()
 			return null
@@ -81,8 +82,8 @@ object NativeFilePicker {
 			// 1. Try Java AWT FileDialog (native OS Open File Dialog)
 			try {
 				val dialog = createFileDialog(window, title, FileDialog.LOAD).apply {
-					setFilenameFilter { _, name -> name.endsWith(".$extension", ignoreCase = true) }
-					file = "*.$extension"
+					setFilenameFilter { _, name -> accepted(name) }
+					file = extensions.joinToString(";") { "*.$it" }
 					if (!initialPath.isNullOrBlank()) {
 						val f = File(initialPath)
 						if (f.exists()) directory = if (f.isDirectory) f.absolutePath else f.parent
@@ -94,7 +95,7 @@ object NativeFilePicker {
 				val selectedFile = dialog.file
 				if (!dir.isNullOrBlank() && !selectedFile.isNullOrBlank()) {
 					val full = File(dir, selectedFile).toPath().toAbsolutePath().normalize().toString()
-					if (full.endsWith(".$extension", ignoreCase = true)) {
+					if (accepted(full)) {
 						return full
 					}
 				}
@@ -107,7 +108,7 @@ object NativeFilePicker {
 				UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName())
 				val chooser = chooser().apply {
 					dialogTitle = title
-					fileFilter = javax.swing.filechooser.FileNameExtensionFilter(filterLabel, extension)
+					fileFilter = javax.swing.filechooser.FileNameExtensionFilter(filterLabel, *extensions.toTypedArray())
 					if (!initialPath.isNullOrBlank()) {
 						val f = File(initialPath)
 						if (f.exists()) currentDirectory = if (f.isDirectory) f else f.parentFile
@@ -446,8 +447,8 @@ object NativeFilePicker {
 	}
 
 	/**
-	 * Opens a multi-select picker for material files and folders: images, PSD, CMO3 and SVG
-	 * ([io.github.psd2live.application.WorkspaceMaterialFiles.extensions]).
+	 * Opens a multi-select picker for material files and folders: images, PSD, CMO3, SVG and layout manifests
+	 * ([io.github.psd2live.application.WorkspaceMaterialFiles.fileExtensions]).
 	 */
 	fun chooseMaterialFiles(window: Window? = null): List<File> {
 		if (!isPicking.compareAndSet(false, true)) {
@@ -462,7 +463,7 @@ object NativeFilePicker {
 					isMultiSelectionEnabled = true
 					fileSelectionMode = JFileChooser.FILES_AND_DIRECTORIES
 					fileFilter = javax.swing.filechooser.FileNameExtensionFilter(tr("materials.import.filter"),
-						*io.github.psd2live.application.WorkspaceMaterialFiles.extensions.toTypedArray())
+						*io.github.psd2live.application.WorkspaceMaterialFiles.fileExtensions.toTypedArray())
 				}
 				if (chooser.showOpenDialog(owner(window)) == JFileChooser.APPROVE_OPTION) return chooser.selectedFiles?.toList().orEmpty()
 			} catch (_: Throwable) {}

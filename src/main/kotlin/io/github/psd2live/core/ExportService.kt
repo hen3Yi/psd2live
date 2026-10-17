@@ -27,6 +27,7 @@ internal object ExportService {
 	/**
 	 * Skeletal-animation targets that bake parameters into additive animations. Their combined poses still differ
 	 * visibly from the editor, so the editor's menu leaves them out; the command line marks them experimental.
+	 * Unity stays in the menu: its importer installs itself once, so more than one character can be exported.
 	 */
 	val experimental: Set<String> = setOf("spine", "dragonbones", "gltf")
 
@@ -40,6 +41,7 @@ internal object ExportService {
 		io.github.psd2live.targets.runtime.P2lrtTarget,
 		io.github.psd2live.targets.web.WebTarget,
 		io.github.psd2live.targets.gltf.GltfTarget(geometry),
+		io.github.psd2live.targets.unity.UnityTarget(geometry),
 	) + RasterTargets(IrFrameRenderer).all)
 
 	/** Built-in options for [target] from the document's export settings; explicit [settings] win. */
@@ -72,12 +74,13 @@ internal object ExportService {
 	internal fun writeStaged(preview: RigPreviewModel, target: ExportTarget, options: ExportOptions, stage: Path): ExportReport {
 		val ir = RigIrCompiler.compile(preview, tileArt = target.id == "cmo3", simulations = target.id == "p2lrt" || target.id == "web")
 		val root = stage.toAbsolutePath().normalize()
-		return Compiler.export(target, ir, options) { path, bytes ->
+		val report = Compiler.export(target, ir, options) { path, bytes ->
 			val file = root.resolve(path).normalize()
 			require(file.startsWith(root)) { "Export path escapes the output: $path" }
 			Files.createDirectories(file.parent)
 			Files.write(file, bytes)
 		}
+		return report.copy(losses = report.losses + io.github.psd2live.core.interior.InteriorLifecycle.losses(preview.rig.puppet, preview.config.rigEdits))
 	}
 
 	internal fun reportName(options: ExportOptions, target: ExportTarget) = "${options.baseName}.${target.id}.report.json"

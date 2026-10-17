@@ -306,6 +306,11 @@ private fun MutableList<ToolOption>.addObjectMode(editor: CanvasEditor) {
  */
 private fun MutableList<ToolOption>.addLayerActions(editor: CanvasEditor, layerId: String?, meshId: String? = null) {
     if (layerId == null) return
+    // A layer the generator has not read can be kept as reference: on the canvas, out of the rig and exports.
+    val layout = editor.state.layout
+    if (layerId in layout.referenceLayerIds || !layout.generation.generated || layerId in layout.generation.pendingLayerIds)
+        add(ToggleOption("layer.reference", "layers.reference.toggle", { layerId in it.state.layout.referenceLayerIds },
+            { e, on -> e.viewModel.markLayersReference(listOf(layerId), on) }, place = OptionPlace.MENU))
     val rig = editor.state.previewModel?.rig
     val meshed = rig != null && rig.puppet.drawables.any { rig.layerIdByDrawableId[it.id.raw] == layerId && it.mesh != null }
     if (meshed) {

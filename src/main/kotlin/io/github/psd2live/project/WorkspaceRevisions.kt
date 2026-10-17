@@ -31,8 +31,17 @@ internal object WorkspaceRevisions {
 
 	/** The revision from the whole canonical text; [of] must always agree with it. */
 	internal fun reference(document: WorkspaceDocument): String {
-		val canonical = "|settings:" + document.settings + "|rig:" + document.rigEdits + tail(document)
+		val canonical = "|settings:" + document.settings + "|rig:" + rigText(document.rigEdits) + tail(document)
 		return "revision-${sha256(canonical.encodeToByteArray())}"
+	}
+
+	// An empty optional field must not change the identity of pre-feature documents.
+	private fun rigText(rig: RigEditOverlay): String {
+		val text = rig.toString()
+		if (rig.interiorEffects.isNotEmpty()) return text
+		val token = ", interiorEffects=[]"
+		val index = text.lastIndexOf(token)
+		return if (index < 0) text else text.removeRange(index, index + token.length)
 	}
 
 	/** Everything after the rig overlay in the canonical text. */
@@ -171,7 +180,7 @@ internal object WorkspaceRevisions {
 				recent.firstOrNull { parts -> values.indices.all { same(parts.values[it], values[it]) } }?.let { return it }
 			}
 			val sentinel = JsonObject(mapOf("psd2live-journal-${UUID.randomUUID()}" to JsonNull))
-			val text = rig.copy(authoringJournal = listOf(sentinel)).toString()
+			val text = rigText(rig.copy(authoringJournal = listOf(sentinel)))
 			val marker = "[$sentinel]"
 			val at = text.indexOf(marker)
 			if (at < 0 || text.indexOf(marker, at + 1) >= 0) return null

@@ -19,6 +19,7 @@ internal object WorkspaceMaterialQueries {
         if (item.origin.isNotEmpty()) put("origin", item.origin)
         item.placement?.let { rect -> putJsonArray("placement") { listOf(rect.left, rect.top, rect.width, rect.height).forEach { add(JsonPrimitive(it)) } } }
         put("references", references)
+        if (item.reference) put("reference", true)
     }
 
     fun folder(folder: MaterialFolder, library: MaterialLibrary): JsonObject = buildJsonObject {

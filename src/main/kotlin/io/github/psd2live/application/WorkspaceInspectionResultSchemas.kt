@@ -56,6 +56,7 @@ internal object WorkspaceInspectionResultSchemas {
         scoped("project", projectFields, setOf("loaded", "busy", "canvas", "layers", "parameters")),
         scoped("physics", mapOf("fps" to s.integer(), "groups" to s.array(WorkspacePhysicsResultTypes.group))),
         scoped("swings", mapOf("swings" to s.array(swing))),
+        scoped("interiors", mapOf("effects" to s.array(WorkspaceInteriorSchemas.inspected))),
         scoped("simulations", mapOf("simulations" to s.array(WorkspaceSimulationResultSchemas.inspectedSimulation),
             "glues" to s.array(s.obj(mapOf("key" to s.handle(), "pairs" to s.integer(0)))))),
         scoped("settings", mapOf("settings" to WorkspaceSettingsResultTypes.settings)),
@@ -66,7 +67,7 @@ internal object WorkspaceInspectionResultSchemas {
                 "side" to s.choices(*Side.entries.map { it.name.lowercase() }.toTypedArray()),
                 "type" to s.choices(*LayerType.entries.map { it.name.lowercase() }.toTypedArray()),
                 "parameter" to s.string(), "switch_id" to s.integer(0)))),
-            "refreshable" to s.array(s.handle())), setOf("generated")),
+            "refreshable" to s.array(s.handle()), "reference_layers" to s.array(s.handle())), setOf("generated")),
         page("objects", s.obj(objectRowFields, objectRowFields.keys - "layerId")), page("layers", layer), page("parameters", parameter),
         page("paths", s.obj(pathFields + ("target" to s.handle()))), page("vertex_groups", group),
     ))

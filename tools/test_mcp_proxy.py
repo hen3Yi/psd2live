@@ -10,7 +10,7 @@ from mcp_proxy import Client, McpError
 class ClientJobTest(unittest.TestCase):
     def client(self, tools):
         client = Client(token="test-token")
-        client._tools = set(tools)
+        client._tools = {name: {} for name in tools}
         return client
 
     def test_core_jobs_use_the_gateway_for_every_poll(self):

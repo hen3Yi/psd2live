@@ -4,7 +4,10 @@ import io.github.psd2live.core.*
 import io.github.psd2live.project.*
 import org.umamo.format.art.SourceLayer
 import org.umamo.runtime.model.AtlasPage
+import org.umamo.runtime.model.BlendMode
+import org.umamo.runtime.model.Drawable
 import org.umamo.runtime.model.DrawableId
+import org.umamo.runtime.model.DrawableMesh
 import org.umamo.runtime.model.OrgChild
 import org.umamo.runtime.model.withDerivedRenderRoot
 
@@ -15,15 +18,30 @@ import org.umamo.runtime.model.withDerivedRenderRoot
  * layer of a project not generated yet. Those show as plain meshes - the layer's outline at rest, at the root, without
  * parameters - built by a mesh-only generation of those layers alone ([meshModel]) and laid over the generated model
  * ([augment]). The generated model stays the model's [RigPreviewModel.layoutBase], which builds, replay and export read.
+ *
+ * Reference layers are not meshed from their pixels and never enter an atlas: each shows as a four-corner quad over
+ * its canvas rectangle, there to be picked and moved, which the artwork pass skips; the canvas draws its pixels on
+ * their own, under or over the model ([RigPreviewModel.referenceLayerIds]).
  */
 internal object WorkspaceLayoutPreview {
     private val pipeline = PSD2LivePipeline()
 
-    /** The source layers [document] shows without generating them: all of them before the first generation, else those placed since. */
+    /**
+     * The source layers [document] shows without generating them: all of them before the first generation, else those
+     * placed since and the reference layers, which no generation reads.
+     */
     fun pendingIds(document: WorkspaceDocument): Set<String> {
         val generation = document.layout.generation
         val ids = document.source.layers.mapTo(LinkedHashSet()) { it.id.raw }
-        return if (!generation.generated) ids - document.deletedLayerIds else generation.pendingLayerIds.filterTo(LinkedHashSet()) { it in ids }
+        if (!generation.generated) return ids - document.deletedLayerIds
+        return (generation.pendingLayerIds + document.layout.referenceLayerIds).filterTo(LinkedHashSet()) { it in ids }
+    }
+
+    /** The reference layers [document] shows ([WorkspaceLayout.referenceLayerIds]), present and not deleted. */
+    fun referenceIds(document: WorkspaceDocument): Set<String> {
+        val marked = document.layout.referenceLayerIds
+        if (marked.isEmpty()) return emptySet()
+        return document.source.layers.mapNotNullTo(LinkedHashSet()) { layer -> layer.id.raw.takeIf { it in marked && it !in document.deletedLayerIds } }
     }
 
     /** Whether [document] shows layers the generators do not read. */
@@ -93,10 +111,11 @@ internal object WorkspaceLayoutPreview {
         return built.copy(rig = rig, sources = PreviewRigSources.of(rig))
     }
 
-    /** The placement preview of a project not generated yet: every layer as a plain mesh. */
+    /** The placement preview of a project not generated yet: every layer as a plain mesh, the reference layers as quads. */
     fun ungenerated(document: WorkspaceDocument, checkCancelled: () -> Unit = {}): RigPreviewModel {
-        val pending = pendingIds(document)
-        return meshModel(document, document.source.layers.filter { it.id.raw in pending }, checkCancelled).copy(layoutPreview = true)
+        val pending = pendingIds(document) - referenceIds(document)
+        val meshed = meshModel(document, document.source.layers.filter { it.id.raw in pending }, checkCancelled).copy(layoutPreview = true)
+        return withReferences(meshed, document)
     }
 
     /**
@@ -104,7 +123,14 @@ internal object WorkspaceLayoutPreview {
      * plain meshes, in front of the rig: their textures on pages after [base]'s, their layers listed after its layers.
      */
     fun augment(base: RigPreviewModel, document: WorkspaceDocument, checkCancelled: () -> Unit = {}): RigPreviewModel {
-        val pending = pendingIds(document)
+        val references = referenceIds(document)
+        val meshed = meshed(base, document, references, checkCancelled)
+        return if (references.isEmpty()) meshed else withReferences(meshed.copy(layoutBase = base), document)
+    }
+
+    /** [base] with [document]'s pending layers but [references] as plain meshes, or [base] itself when there are none. */
+    private fun meshed(base: RigPreviewModel, document: WorkspaceDocument, references: Set<String>, checkCancelled: () -> Unit): RigPreviewModel {
+        val pending = pendingIds(document) - references
         val layers = document.source.layers.filter { it.id.raw in pending }
         if (layers.isEmpty()) return base
         val extra = meshModel(document, layers, checkCancelled)
@@ -135,5 +161,40 @@ internal object WorkspaceLayoutPreview {
         val analysis = base.analysis.copy(source = document.source,
             layers = base.analysis.layers + extra.analysis.layers.filter { it.source.id.raw in pending })
         return base.copy(analysis = analysis, atlas = atlas, rig = rig, layoutBase = base)
+    }
+
+    /** The static draw order of a reference layer's quad: behind everything, so a click on a part picks the part. */
+    const val REFERENCE_DRAW_ORDER = 0f
+
+    /**
+     * [model] with [document]'s reference layers as quads: four corners over each layer's canvas rectangle where its
+     * transform shows it, texture coordinates over the whole image, no atlas page. Their classification joins the
+     * analysis, so the layer table lists them; the canvas finds their pixels in [RigPreviewModel.analysis]'s source.
+     */
+    private fun withReferences(model: RigPreviewModel, document: WorkspaceDocument): RigPreviewModel {
+        val ids = referenceIds(document)
+        if (ids.isEmpty()) return model
+        val layers = document.source.layers.filter { it.id.raw in ids }
+        val config = document.config().let { it.copy(layerOverrides = it.layerOverrides + document.layout.generation.pendingClassifications) }
+        val bounds = LinkedHashMap<String, Bounds>()
+        val quads = layers.map { layer ->
+            val r = layer.canvasRect()
+            val canvas = RasterMeshPlacement.shown(floatArrayOf(r.left, r.top, r.right, r.top, r.right, r.bottom, r.left, r.bottom), layer.transform)
+            val id = meshId(layer.id.raw)
+            bounds[id] = Bounds(r.left, r.top, r.right, r.bottom)
+            // Root meshes are in canvas units with y up.
+            Drawable(DrawableId(id), layer.name, null, BlendMode.Normal, emptyList(),
+                DrawableMesh(FloatArray(8) { if (it % 2 == 1) -canvas[it] else canvas[it] }, floatArrayOf(0f, 0f, 1f, 0f, 1f, 1f, 0f, 1f), intArrayOf(0, 1, 2, 0, 2, 3)),
+                null, drawOrder = REFERENCE_DRAW_ORDER, opacity = layer.opacity)
+        }
+        val puppet = model.rig.puppet
+        require(puppet.drawables.none { drawable -> quads.any { it.id == drawable.id } }) { "A reference layer's quad collides with a mesh" }
+        val rig = model.rig.copy(
+            puppet = puppet.copy(drawables = puppet.drawables + quads, rootChildren = puppet.rootChildren + quads.map { OrgChild.Drawable(it.id) }).withDerivedRenderRoot(),
+            layerIdByDrawableId = model.rig.layerIdByDrawableId + quads.zip(layers).associate { (quad, layer) -> quad.id.raw to layer.id.raw },
+            sourceBoundsByDrawableId = model.rig.sourceBoundsByDrawableId + bounds)
+        val analysis = model.analysis.copy(source = document.source,
+            layers = model.analysis.layers.filter { it.source.id.raw !in ids } + layers.map { CharacterAnalyzer.classify(it, config) })
+        return model.copy(analysis = analysis, rig = rig, referenceLayerIds = ids)
     }
 }

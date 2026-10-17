@@ -91,6 +91,16 @@ internal object Characters {
 		return directory.resolve("figure.psd").also { Files.write(it, PsdWriter.write(source.widthPx, source.heightPx, source.layers, source.groups)) }
 	}
 
+	/** [figure] at [scale] with both eyes on one layer, two islands a mesh split offers to separate. */
+	fun eyesPsd(directory: Path, scale: Float = 1f): Path {
+		fun ellipse(cx: Int, cy: Int, rx: Int, ry: Int) = Characters.ellipse((cx * scale).toInt(), (cy * scale).toInt(), (rx * scale).toInt(), (ry * scale).toInt())
+		val left = ellipse(195, 68, 9, 6); val right = ellipse(225, 68, 9, 6)
+		val size = (420 * scale).toInt()
+		val source = document(size, size, figureParts(scale) + Part("eyes", 9, SemanticTag.EYEWHITE, Side.NONE) { x, y -> left(x, y) || right(x, y) },
+			PipelineConfig(atlasSize = 512, generatePhysics = false, exportMoc3 = false)).source
+		return directory.resolve("eyes.psd").also { Files.write(it, PsdWriter.write(source.widthPx, source.heightPx, source.layers, source.groups)) }
+	}
+
 	/** A face and mouth, with enough contour for the generated lip ribbons. */
 	fun mouthPsd(directory: Path): Path {
 		val source = document(128, 128, listOf(

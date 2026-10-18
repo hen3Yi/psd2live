@@ -19,6 +19,14 @@ internal object CanvasGpu {
 	/** Frames rendered per view since start, for the development tools. */
 	val framesDrawn = ConcurrentHashMap<String, AtomicInteger>()
 
+	private val _failed = androidx.compose.runtime.mutableStateOf(false)
+
+	/**
+	 * Whether a GPU draw failed (a driver that cannot make a target or compile a shader): canvases paint in software
+	 * from then on. Snapshot state, read where canvases decide, so they switch on their next composition.
+	 */
+	val failed: Boolean get() = _failed.value
+
 	/** Whether canvases in [window] can draw on the GPU. */
 	fun available(window: Window?): Boolean = SkiaGpu.of(window) != null
 
@@ -27,18 +35,27 @@ internal object CanvasGpu {
 	 * the one rendering now (the canvas then paints in software).
 	 */
 	fun draw(window: Window?, viewId: String, key: List<Any?>, scene: () -> GpuScene): GpuFrame? {
+		if (_failed.value) return null
 		val gpu = SkiaGpu.of(window) ?: return null
 		val last = drawn[viewId]
 		if (last != null && last.window === gpu && last.key == key) gpu.resources.frame(viewId)?.let { return it }
-		return gpu.turn { resources ->
-			val built = scene()
-			resources.render(viewId, built.width, built.height, bottomUp = false) {
-				resources.canvasRenderer.draw(viewId, built)
-			}?.also {
-				drawn[viewId] = Drawn(key, gpu)
-				framesDrawn.getOrPut(viewId) { AtomicInteger() }.incrementAndGet()
-			}
-		} ?: gpu.resources.frame(viewId)
+		// Thrown out of the window's draw, a failure would end Skiko's frame loop and the window would stop drawing.
+		return try {
+			gpu.turn { resources ->
+				val built = scene()
+				resources.render(viewId, built.width, built.height, bottomUp = false) {
+					resources.canvasRenderer.draw(viewId, built)
+				}?.also {
+					drawn[viewId] = Drawn(key, gpu)
+					framesDrawn.getOrPut(viewId) { AtomicInteger() }.incrementAndGet()
+				}
+			} ?: gpu.resources.frame(viewId)
+		} catch (failure: Exception) {
+			System.err.println("GPU canvas failed, painting in software: $failure")
+			failure.printStackTrace()
+			_failed.value = true
+			null
+		}
 	}
 
 	/** Forgets [viewId] and frees its GPU objects when its window next renders. */

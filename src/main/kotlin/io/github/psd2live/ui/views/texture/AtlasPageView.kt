@@ -258,7 +258,7 @@ private fun AtlasPageCanvas(state: PSD2LiveState, vm: PSD2LiveViewModel, snapsho
 	val livePage = remember(state.previewModel, snapshot, page) {
 		if (!snapshot.upscaled) null else state.previewModel?.atlas?.takeIf(snapshot::matches)?.pages?.getOrNull(page)?.image
 	}
-	val gpuReady = !softwareCanvas && gpuAvailable && (!snapshot.upscaled || livePage != null)
+	val gpuReady = !softwareCanvas && gpuAvailable && !CanvasGpu.failed && (!snapshot.upscaled || livePage != null)
 	val renderKey = remember { "atlas-page-" + java.util.UUID.randomUUID() }
 	DisposableEffect(renderKey) { onDispose { CanvasGpu.release(renderKey) } }
 	val tileImages = rememberTileImages(snapshot, enabled = !gpuReady)

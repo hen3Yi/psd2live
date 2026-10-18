@@ -395,7 +395,7 @@ fun CanvasViewportComposable(
 	val softwareCanvas by AppSettings.softwareCanvasFlow.collectAsState()
 	val gpuPrimary by SkiaGpu.primaryFlow.collectAsState()
 	val gpuAvailable = remember(gpuPrimary, awtWindow) { CanvasGpu.available(awtWindow) }
-	val gpuReady = !softwareCanvas && !sourcePixels && gpuAvailable
+	val gpuReady = !softwareCanvas && !sourcePixels && gpuAvailable && !CanvasGpu.failed
 	// One GPU view per canvas whatever its mode: a switch keeps its meshes and page textures on the GPU.
 	val gpuKey = viewModel.canvasRenderKey(canvasId, CanvasMode.EDIT)
 	val ghostKey = "$gpuKey#snapshot"

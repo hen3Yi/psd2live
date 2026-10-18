@@ -54,6 +54,10 @@ internal object CanvasGpu {
 			System.err.println("GPU canvas failed, painting in software: $failure")
 			failure.printStackTrace()
 			_failed.value = true
+			// Canvases paint in software from now on: free what the failed view and every drawn one hold on the GPU,
+			// which a closed canvas would otherwise only free for views that once drew.
+			gpu.post { it.release(viewId) }
+			for (id in drawn.keys.toList()) release(id)
 			null
 		}
 	}

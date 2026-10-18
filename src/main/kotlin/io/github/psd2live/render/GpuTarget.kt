@@ -100,6 +100,7 @@ internal class GpuTarget {
 		val newWidth = roundUp(maxOf(width, capacityWidth))
 		val newHeight = roundUp(maxOf(height, capacityHeight))
 		dispose()
+		clearGlErrors()
 		capacityWidth = newWidth
 		capacityHeight = newHeight
 		texture = colorTexture()
@@ -108,6 +109,12 @@ internal class GpuTarget {
 		GL30.glRenderbufferStorage(GL30.GL_RENDERBUFFER, GL30.GL_DEPTH24_STENCIL8, capacityWidth, capacityHeight)
 		GL30.glBindRenderbuffer(GL30.GL_RENDERBUFFER, 0)
 		framebuffer = framebuffer(texture)
+		// Out of memory only sets an error, and the framebuffer can still read as complete.
+		val error = GL11.glGetError()
+		if (error != GL11.GL_NO_ERROR) {
+			dispose()
+			error("Render target $capacityWidth x $capacityHeight failed: GL error 0x${Integer.toHexString(error)}")
+		}
 	}
 
 	private fun createScene() {
@@ -152,6 +159,11 @@ internal class GpuTarget {
 	}
 
 	private fun roundUp(value: Int) = ((value.coerceAtLeast(1) + 63) / 64) * 64
+}
+
+/** Drops the GL errors earlier calls left, so the next check reads only what follows. */
+internal fun clearGlErrors() {
+	repeat(8) { if (GL11.glGetError() == GL11.GL_NO_ERROR) return }
 }
 
 /** Binds vertex array 0 with no array or index buffer and every attribute array off. */

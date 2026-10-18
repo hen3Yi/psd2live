@@ -232,9 +232,16 @@ class WindowGpu internal constructor(
 		}
 	}
 
-	/** Runs the posted tasks now if this thread is rendering the window. */
+	/**
+	 * Runs the posted tasks now if this thread is rendering the window. A task's own failure is caught in
+	 * [runTasks]; this also catches the turn's setup and state restores, which run inside the window's draw too.
+	 */
 	fun drain() {
-		if (tasks.isNotEmpty()) turn { }
+		if (tasks.isNotEmpty()) try {
+			turn { }
+		} catch (failure: Exception) {
+			System.err.println("GPU turn failed: $failure")
+		}
 	}
 
 	/** Queues [task] for the next turn and asks the window to render one; any thread. */
@@ -301,7 +308,7 @@ class WindowGpu internal constructor(
 				if (compositor !== composer) return inner.onRender(canvas, width, height, nanoTime)
 				pacing.frame(System.nanoTime())
 				resumeFrameWaiters(nanoTime)
-				if (tasks.isNotEmpty()) turn { }
+				drain()
 				if (compositor !== composer) return inner.onRender(canvas, width, height, nanoTime)
 				val skia = if (COMPOSITING && makeCurrent()) directContext() else null
 				val composited = skia != null && runCatching { composer.render(canvas, width, height, nanoTime, skia) }

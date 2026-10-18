@@ -129,7 +129,10 @@ internal class GpuTarget {
 		GL30.glFramebufferRenderbuffer(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_STENCIL_ATTACHMENT, GL30.GL_RENDERBUFFER, depthStencil)
 		val status = GL30.glCheckFramebufferStatus(GL30.GL_FRAMEBUFFER)
 		GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0)
-		check(status == GL30.GL_FRAMEBUFFER_COMPLETE) { "Render target incomplete: 0x${Integer.toHexString(status)}" }
+		if (status != GL30.GL_FRAMEBUFFER_COMPLETE) {
+			GL30.glDeleteFramebuffers(id)
+			error("Render target incomplete: 0x${Integer.toHexString(status)}")
+		}
 		return id
 	}
 
@@ -159,6 +162,19 @@ internal class GpuTarget {
 	}
 
 	private fun roundUp(value: Int) = ((value.coerceAtLeast(1) + 63) / 64) * 64
+}
+
+/**
+ * Throws, deleting [texture], when allocating it set a GL error: a size past the GPU's limit, or memory it lacks,
+ * does not throw, and a texture without pixels would draw as a hole while the frame counts as drawn. Call
+ * [clearGlErrors] just before the upload, so an error here is the upload's.
+ */
+internal fun checkTextureUpload(texture: Int, width: Int, height: Int) {
+	val error = GL11.glGetError()
+	if (error == GL11.GL_NO_ERROR) return
+	GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0)
+	GL11.glDeleteTextures(texture)
+	error("Texture $width x $height upload failed: GL error 0x${Integer.toHexString(error)}")
 }
 
 /** Drops the GL errors earlier calls left, so the next check reads only what follows. */

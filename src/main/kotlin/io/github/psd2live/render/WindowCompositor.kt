@@ -80,7 +80,8 @@ internal class WindowCompositor(private val gpu: WindowGpu, private val inner: S
 		val sizeChanged = width != this.width || height != this.height
 		if (sizeChanged || surface == null) {
 			image?.close(); image = null
-			surface?.close()
+			// Cleared before the new one is made: a failed allocation must not leave a closed surface to draw into.
+			surface?.close(); surface = null
 			// Multisampled like the window's own target ([MultisampledWindow]): the GPU rasterizes antialiased shapes.
 			val info = ImageInfo(width, height, ColorType.RGBA_8888, ColorAlphaType.PREMUL, ColorSpace.sRGB)
 			val props = SurfaceProps(gpu.pixelGeometry ?: PixelGeometry.UNKNOWN)

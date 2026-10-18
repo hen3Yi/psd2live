@@ -391,8 +391,13 @@ internal class P2lrtGlRenderer : AutoCloseable {
 		GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, texture, 0)
 		if (renderbuffer != 0) GL30.glFramebufferRenderbuffer(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_STENCIL_ATTACHMENT, GL30.GL_RENDERBUFFER, renderbuffer)
 		val status = GL30.glCheckFramebufferStatus(GL30.GL_FRAMEBUFFER)
-		check(status == GL30.GL_FRAMEBUFFER_COMPLETE) { "Layer target incomplete: 0x${Integer.toHexString(status)}" }
-		return Offscreen(framebuffer, texture, renderbuffer)
+		val target = Offscreen(framebuffer, texture, renderbuffer)
+		if (status != GL30.GL_FRAMEBUFFER_COMPLETE) {
+			GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0)
+			release(target)
+			error("Layer target incomplete: 0x${Integer.toHexString(status)}")
+		}
+		return target
 	}
 
 	private fun release(target: Offscreen) {
@@ -436,8 +441,10 @@ internal class P2lrtGlRenderer : AutoCloseable {
 			val texture = GL11.glGenTextures()
 			GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture)
 			GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 4)
+			clearGlErrors()
 			GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, width, height, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, pixels)
 			GL30.glGenerateMipmap(GL11.GL_TEXTURE_2D)
+			checkTextureUpload(texture, width, height)
 			GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR_MIPMAP_LINEAR)
 			GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR)
 			GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE)

@@ -37,6 +37,8 @@ class P2lrtPreviewSession(
 	/** One context's renderer and the rig generation its meshes and pages are uploaded for. */
 	private class ContextRenderer(val renderer: P2lrtGlRenderer) : AutoCloseable {
 		var generation = -1L
+		/** The generation whose upload failed (a page past the GPU's limit, or out of memory): not retried every frame. */
+		var failedGeneration = -1L
 		override fun close() = renderer.close()
 	}
 
@@ -148,8 +150,11 @@ class P2lrtPreviewSession(
 			}
 			val context = resources.service(serviceKey) { ContextRenderer(P2lrtGlRenderer()) }
 			if (context.generation != current.generation) {
+				if (context.failedGeneration == current.generation) return
+				context.failedGeneration = current.generation
 				context.renderer.setRig(view.rig, current.pages)
 				context.generation = current.generation
+				context.failedGeneration = -1L
 			}
 			val rig = view.rig
 			// The physics switch decides whether the simulation runs; without it the baked swing shows, skinned.

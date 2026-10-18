@@ -409,7 +409,7 @@ internal class GlCanvasRenderer(
 				GL11.GL_UNSIGNED_BYTE, null as java.nio.ByteBuffer?)
 			val texture = view.paintTexture
 			view.paintTexture = 0
-			checkUpload(texture, paint.width, paint.height)
+			checkTextureUpload(texture, paint.width, paint.height)
 			view.paintTexture = texture
 			GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR)
 			GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR)
@@ -528,7 +528,7 @@ internal class GlCanvasRenderer(
 				clearGlErrors()
 				GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, width, height, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, pixels)
 				if (mipmaps) GL30.glGenerateMipmap(GL11.GL_TEXTURE_2D)
-				checkUpload(texture, width, height)
+				checkTextureUpload(texture, width, height)
 				GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, if (mipmaps) GL11.GL_LINEAR_MIPMAP_LINEAR else GL11.GL_LINEAR)
 				GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR)
 				GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE)
@@ -709,7 +709,7 @@ internal class GlCanvasRenderer(
 			clearGlErrors()
 			GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, width, height, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, pixels)
 			if (mipmaps) GL30.glGenerateMipmap(GL11.GL_TEXTURE_2D)
-			checkUpload(texture, width, height)
+			checkTextureUpload(texture, width, height)
 			GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER,
 				if (mipmaps) GL11.GL_LINEAR_MIPMAP_LINEAR else GL11.GL_LINEAR)
 			GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR)
@@ -719,19 +719,6 @@ internal class GlCanvasRenderer(
 		} finally {
 			MemoryUtil.memFree(pixels)
 		}
-	}
-
-	/**
-	 * Throws, deleting [texture], when allocating it set a GL error: a size past the GPU's limit, or memory it
-	 * lacks, does not throw, and a texture without pixels would draw as a hole while the frame counts as drawn.
-	 * Errors are cleared just before the upload, so one here is the upload's.
-	 */
-	private fun checkUpload(texture: Int, width: Int, height: Int) {
-		val error = GL11.glGetError()
-		if (error == GL11.GL_NO_ERROR) return
-		GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0)
-		GL11.glDeleteTextures(texture)
-		error("Texture $width x $height upload failed: GL error 0x${Integer.toHexString(error)}")
 	}
 
 	private fun ensureTarget(view: View, width: Int, height: Int) {

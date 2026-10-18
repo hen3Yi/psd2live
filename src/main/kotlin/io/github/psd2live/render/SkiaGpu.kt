@@ -216,6 +216,7 @@ class WindowGpu internal constructor(
 			val profile = GL11.glGetInteger(0x9126) // GL_CONTEXT_PROFILE_MASK: 1 core, 2 compatibility, 0 legacy
 			coreProfile = profile and 1 != 0
 			description = "${GL11.glGetString(GL11.GL_RENDERER)} | ${GL11.glGetString(GL11.GL_VERSION)}${if (coreProfile) " core" else ""}"
+			println("OpenGL: $description")
 			if (this === SkiaGpu.primary) SkiaGpu.refreshStatus(this)
 		} else {
 			GL.setCapabilities(capabilities)

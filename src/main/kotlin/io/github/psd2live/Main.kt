@@ -120,6 +120,8 @@ private fun useAppIconInDock() {
 
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 private fun runGui() {
+	SessionLog.install(Path.of(System.getProperty("user.home"), ".psd2live", "logs"))
+	FreezeWatchdog().start()
 	val instanceLock = try {
 		AppInstanceLock.acquire(WorkspaceStore.defaultRoot()) ?: run {
 			// Held by a running editor; leave it alone rather than share its store and MCP port.

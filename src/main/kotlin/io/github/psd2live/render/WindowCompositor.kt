@@ -11,7 +11,6 @@ import org.jetbrains.skia.PictureRecorder
 import org.jetbrains.skia.PixelGeometry
 import org.jetbrains.skia.Rect
 import org.jetbrains.skia.Surface
-import org.jetbrains.skia.SurfaceOrigin
 import org.jetbrains.skia.SurfaceProps
 import org.jetbrains.skiko.SkikoRenderDelegate
 import java.lang.reflect.Field
@@ -85,9 +84,9 @@ internal class WindowCompositor(private val gpu: WindowGpu, private val inner: S
 			// Multisampled like the window's own target ([MultisampledWindow]): the GPU rasterizes antialiased shapes.
 			val info = ImageInfo(width, height, ColorType.RGBA_8888, ColorAlphaType.PREMUL, ColorSpace.sRGB)
 			val props = SurfaceProps(gpu.pixelGeometry ?: PixelGeometry.UNKNOWN)
-			surface = MultisampledWindow.SAMPLES.takeIf { it > 1 }?.let {
-				Surface.makeRenderTarget(skia, false, info, it, SurfaceOrigin.TOP_LEFT, props, false)
-			} ?: Surface.makeRenderTarget(skia, false, info, 0, props) ?: return false
+			// Skiko throws, rather than returning null, when the GPU cannot make the target.
+			surface = MultisampledWindow.target(skia, info, props)
+				?: runCatching { Surface.makeRenderTarget(skia, false, info, 0, props) }.getOrNull() ?: return false
 			this.width = width
 			this.height = height
 			invalidated.set(true)

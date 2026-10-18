@@ -59,6 +59,23 @@ internal data class WorkspaceCommit<M>(val capture: WorkspaceCapture<M>, val app
 /** A rebuilt private candidate; preparation has no history, projection or persistence effects. */
 internal data class WorkspacePreparedDraft<M>(val before: WorkspaceCapture<M>, val draft: WorkspaceDraft, val model: M)
 
+/** A validated, immutable installation candidate. Preparing it never touches the live runtime. */
+internal class WorkspaceInstallation private constructor(
+    val history: WorkspaceHistoryState<WorkspaceDocument>,
+) {
+    companion object {
+        fun prepare(document: WorkspaceDocument, history: WorkspaceHistoryState<WorkspaceDocument>? = null): WorkspaceInstallation {
+            val revision = WorkspaceRevisions.of(document)
+            val replacement = history?.let { WorkspaceHistoryTree.restore(it.selections, it.headNodeId) }
+                ?: WorkspaceHistoryTree(document, revision, revision)
+            require(WorkspaceRevisions.of(replacement.head().snapshot) == revision) {
+                "Loaded document does not match history HEAD"
+            }
+            return WorkspaceInstallation(replacement.state())
+        }
+    }
+}
+
 /**
  * Authoritative document/model/history owner, usable without Compose or MCP.
  * Expensive preparation runs outside the state lock. Both entry and commit check the same opaque
@@ -133,6 +150,33 @@ internal class WorkspaceRuntime<M>(
         tree = replacement
         publish(WorkspaceCapture(projectId, token(), head.node.id, head.node.revisionId,
             head.snapshot, model, auxiliary, dirty, "$instanceId:$generation"))
+    }
+
+    /** Only publication and projection run on the caller's thread; hashing was done by [WorkspaceInstallation.prepare]. */
+    fun installPrepared(
+        expectedState: String,
+        projectId: String,
+        installation: WorkspaceInstallation,
+        model: M,
+        auxiliary: JsonObject = JsonObject(emptyMap()),
+        discardUnsaved: Boolean = false,
+        dirty: Boolean = false,
+        beforeInstall: () -> Unit = {},
+    ): WorkspaceCapture<M> {
+        // Each installation owns its mutable tree, even if a prepared candidate is used twice.
+        val replacement = WorkspaceHistoryTree.restore(installation.history.selections, installation.history.headNodeId)
+        val head = replacement.head()
+        return synchronized(lock) {
+            checkState(expectedState)
+            require(projectId.isNotBlank()) { "Project ID must not be blank" }
+            if (mutableState.value.capture?.dirty == true && !discardUnsaved) throw WorkspaceUnsavedChanges()
+            beforeInstall()
+            generation++
+            version = 0
+            tree = replacement
+            publish(WorkspaceCapture(projectId, token(), head.node.id, head.node.revisionId,
+                head.snapshot, model, auxiliary, dirty, "$instanceId:$generation"))
+        }
     }
 
     fun close(expectedState: String, discardUnsaved: Boolean = false) = synchronized(lock) {

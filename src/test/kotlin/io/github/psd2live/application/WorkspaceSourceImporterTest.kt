@@ -1,0 +1,91 @@
+package io.github.psd2live.application
+
+import io.github.psd2live.core.RigPreviewModel
+import io.github.psd2live.project.WorkspaceRevisions
+import io.github.psd2live.project.rawConfig
+import io.github.psd2live.scenario.Characters
+import kotlinx.coroutines.*
+import org.junit.jupiter.api.io.TempDir
+import org.umamo.format.art.SourceArt
+import org.umamo.format.art.SourceLayer
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import kotlin.test.*
+
+class WorkspaceSourceImporterTest {
+    @TempDir lateinit var directory: Path
+
+    @Test fun materialAndRevisionPreparationLeaveTheCallerThreadButProjectionReturnsToIt() = runBlocking {
+        val original = Characters.head(physics = false)
+        val model = WorkspacePreviewBuilder().build(original)
+        val caller = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+        val reads = Collections.synchronizedList(mutableListOf<Thread>())
+        val source = object : SourceArt by original.source {
+            override val layers: List<SourceLayer> get() {
+                reads += Thread.currentThread()
+                return original.source.layers
+            }
+        }
+        val runtime = WorkspaceRuntime<RigPreviewModel>({ error("Importer uses its injected builder") })
+        val importer = WorkspaceSourceImporter(runtime, build = { model }, readPsd = { source })
+        val path = Files.createFile(directory.resolve("input.psd")).toAbsolutePath()
+        try {
+            withContext(caller) {
+                val thread = Thread.currentThread()
+                var projected = false
+                val result = importer.importPsd(path, null, runtime.state.value.state, initialConfig = original.rawConfig()) { document, _, _ ->
+                    assertSame(thread, Thread.currentThread())
+                    assertNull(runtime.state.value.capture, "Projection precedes the single runtime publication")
+                    projected = true
+                    assertEquals(original.source.layers.size, document.layout.materials.items.size)
+                }
+                assertTrue(projected)
+                assertTrue(reads.isNotEmpty())
+                assertTrue(reads.all { it !== thread }, "Source traversal and hashing must not run on the caller")
+                val document = result.capture.document
+                val items = document.layout.materials.items.associateBy { it.id }
+                original.source.layers.forEach { layer ->
+                    val material = items.getValue(document.layout.layerMaterials.getValue(layer.id.raw))
+                    assertSame(layer.raster, material.raster, "Materials share the original pixels")
+                }
+                assertEquals(WorkspaceRevisions.reference(document), result.capture.revision)
+                assertEquals(1, runtime.history().selections.size)
+            }
+        } finally { caller.close() }
+    }
+
+    @Test fun cancellationDuringRevisionPreparationDoesNotProjectOrPublish() = runBlocking {
+        val original = Characters.head(physics = false)
+        val model = WorkspacePreviewBuilder().build(original)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        var preparingRevision = false
+        val source = object : SourceArt by original.source {
+            override val layers: List<SourceLayer> get() {
+                if (preparingRevision) {
+                    entered.countDown()
+                    check(release.await(10, TimeUnit.SECONDS))
+                }
+                return original.source.layers
+            }
+        }
+        val runtime = WorkspaceRuntime<RigPreviewModel>({ error("Unused") })
+        val before = runtime.read()
+        var projected = false
+        val importer = WorkspaceSourceImporter(runtime, build = { preparingRevision = true; model }, readPsd = { source })
+        val path = Files.createFile(directory.resolve("cancel.psd")).toAbsolutePath()
+        val job = launch(Dispatchers.Default) {
+            importer.importPsd(path, null, before.runtime.state, initialConfig = original.rawConfig()) { _, _, _ -> projected = true }
+        }
+        try {
+            assertTrue(withContext(Dispatchers.IO) { entered.await(10, TimeUnit.SECONDS) })
+            job.cancel()
+        } finally { release.countDown(); job.cancelAndJoin() }
+        assertFalse(projected)
+        assertSame(before, runtime.read())
+    }
+}

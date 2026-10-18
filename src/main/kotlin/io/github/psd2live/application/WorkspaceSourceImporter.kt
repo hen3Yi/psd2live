@@ -15,9 +15,11 @@ internal class WorkspaceSourceImporter(
     private val runtime: WorkspaceRuntime<RigPreviewModel>,
     private val build: suspend (WorkspaceDocument) -> RigPreviewModel = { WorkspacePreviewBuilder().build(it) },
     private val readPsd: suspend (Path) -> SourceArt = { path -> runInterruptible(Dispatchers.IO) {
-        val bytes = Files.readAllBytes(path)
-        require(PsdReader.matches(bytes)) { "Invalid PSD file" }
-        PsdReader.read(bytes)
+        val bytes = RigBuildProfile.threadStage("source import: read PSD bytes") { Files.readAllBytes(path) }
+        RigBuildProfile.threadStage("source import: decode PSD") {
+            require(PsdReader.matches(bytes)) { "Invalid PSD file" }
+            PsdReader.read(bytes)
+        }
     } },
     private val readLayout: suspend (Path) -> LayoutManifest.Layout = { path -> runInterruptible(Dispatchers.IO) { LayoutManifest.read(path) } },
     private val readArtwork: suspend (JsonObject) -> Pair<WorkspaceSourceArt, Map<String, LayerClassificationOverride>> = {
@@ -103,15 +105,21 @@ internal class WorkspaceSourceImporter(
                 referenceLayerIds = input.references) else WorkspaceLayout.Empty)
         // An imported file's layers are also materials of the new project, each layer showing its own: they can be
         // replaced, placed again or exported from the material browser. The rig reads only the source, as before.
-        val document = input.materials?.let { file ->
-            input.materialFolder?.let { WorkspaceMaterialEdits.addLinked(created, file, it) } ?: WorkspaceMaterialEdits.addLinked(created, file)
-        } ?: created
+        val context = currentCoroutineContext()
+        val document = runInterruptible(Dispatchers.Default) {
+            RigBuildProfile.threadStage("source import: linked materials and raster hashes") {
+                input.materials?.let { file ->
+                    input.materialFolder?.let { WorkspaceMaterialEdits.addLinked(created, file, it, context::ensureActive) }
+                        ?: WorkspaceMaterialEdits.addLinked(created, file, checkCancelled = context::ensureActive)
+                } ?: created
+            }
+        }
         progress(0.6f, "Rebuilding new source project")
-        val built = build(document)
+        val built = RigBuildProfile.stage("source import: preview build (wall time)") { build(document) }
         if (layout) {
             progress(0.9f, "Installing new layout project")
             val id = newProjectId()
-            val installed = runtime.install(state, id, document, built,
+            val installed = installPrepared(state, id, document, built,
                 auxiliary = JsonObject(sourceAuxiliary + WorkspaceAuxiliaryCodec.encode(WorkspaceAuxiliaryData()) +
                     PreviewSessions.initial(built.rig.puppet.parameters, initialWorkspaceIds()) +
                     ("assetCatalog" to WorkspaceAssetCatalog().encode())), discardUnsaved = discardUnsaved, dirty = true) {
@@ -130,7 +138,7 @@ internal class WorkspaceSourceImporter(
             settings = AtlasArrangementCodec.with(WorkspaceSettingsCodec.encode(WorkspaceSettingsPolicy.restoreRaw(preview.config, config)), arrangement))
         progress(0.9f, "Installing new source project")
         val id = newProjectId()
-        val installed = runtime.install(state, id, prepared, preview,
+        val installed = installPrepared(state, id, prepared, preview,
             auxiliary = JsonObject(sourceAuxiliary + WorkspaceAuxiliaryCodec.encode(WorkspaceAuxiliaryData()) +
                 PreviewSessions.initial(preview.rig.puppet.parameters, initialWorkspaceIds()) +
                 ("assetCatalog" to WorkspaceAssetCatalog().encode())), discardUnsaved = discardUnsaved, dirty = true) {
@@ -140,4 +148,23 @@ internal class WorkspaceSourceImporter(
         currentCoroutineContext()[WorkspaceJobCompletion]?.committed(WorkspaceOperationOutput(result.mutation(summary).sourceResult()))
         return result
     }
+
+    /** Source pixels are private and immutable here. Never move the presentation callback to the worker. */
+    private suspend fun installPrepared(state: String, id: String, document: WorkspaceDocument, preview: RigPreviewModel,
+                                        auxiliary: JsonObject, discardUnsaved: Boolean, dirty: Boolean,
+                                        project: () -> Unit): WorkspaceCapture<RigPreviewModel> {
+        val installation = runInterruptible(Dispatchers.Default) {
+            RigBuildProfile.threadStage("source import: revision and initial history") {
+                WorkspaceInstallation.prepare(document)
+            }
+        }
+        // Cancellation after preparation must not install a candidate, even if its state token is still current.
+        currentCoroutineContext().ensureActive()
+        return RigBuildProfile.threadStage("source import: runtime publication") {
+            runtime.installPrepared(state, id, installation, preview, auxiliary, discardUnsaved, dirty) {
+                RigBuildProfile.threadStage("source import: presentation callback", project)
+            }
+        }
+    }
+
 }

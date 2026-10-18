@@ -94,7 +94,9 @@ internal object WorkspaceRevisions {
 	}
 
 	/** SHA-256 of an immutable raster, cached by array identity. */
-	fun rasterDigest(rgba: ByteArray): String = rasterDigests[rgba] ?: sha256(rgba).also { rasterDigests[rgba] = it }
+	fun rasterDigest(rgba: ByteArray): String = rasterDigests[rgba] ?: io.github.psd2live.core.RigBuildProfile.threadStage("raster: SHA-256") {
+        sha256(rgba).also { rasterDigests[rgba] = it }
+    }
 
 	/** Records [digest] as [rgba]'s SHA-256 when the caller has just verified it (a raster loaded from its digest-named blob). */
 	fun seedRasterDigest(rgba: ByteArray, digest: String) { rasterDigests[rgba] = digest }

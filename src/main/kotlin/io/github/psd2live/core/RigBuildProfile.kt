@@ -18,6 +18,12 @@ internal object RigBuildProfile {
 		try { return block() } finally { add(name, System.nanoTime() - start) }
 	}
 
+    /** Opt-in import measurements include the actual executing thread, without building labels when disabled. */
+    inline fun <T> threadStage(name: String, block: () -> T): T {
+        if (!recording) return block()
+        return stage("$name [${Thread.currentThread().name}]", block)
+    }
+
 	fun add(name: String, elapsed: Long) {
 		nanos.computeIfAbsent(name) { AtomicLong() }.addAndGet(elapsed)
 		calls.computeIfAbsent(name) { AtomicLong() }.incrementAndGet()

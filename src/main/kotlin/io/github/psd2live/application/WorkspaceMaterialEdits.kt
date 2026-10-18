@@ -107,7 +107,8 @@ internal object WorkspaceMaterialEdits {
     }
 
     /** [entries] added under [folderId], each under its folder path, the folders made as needed. */
-    fun add(document: WorkspaceDocument, entries: List<WorkspaceMaterialFiles.Entry>, folderId: String?): WorkspaceDocument {
+    fun add(document: WorkspaceDocument, entries: List<WorkspaceMaterialFiles.Entry>, folderId: String?,
+            checkCancelled: () -> Unit = {}): WorkspaceDocument {
         var library = document.layout.materials
         requireFolder(library, folderId)
         val folders = ArrayList(library.folders); val items = ArrayList(library.items)
@@ -125,6 +126,7 @@ internal object WorkspaceMaterialEdits {
             return parent
         }
         for (entry in entries) {
+            checkCancelled()
             val folder = folderFor(entry)
             val id = StableIds.fresh(StableIds.stem("mat_", folder, entry.name, WorkspaceRevisions.rasterDigest(entry.raster.rgba), entry.origin)) { it in ids }
             ids += id
@@ -144,14 +146,15 @@ internal object WorkspaceMaterialEdits {
      * materials share the layers' pixels.
      */
     fun addLinked(document: WorkspaceDocument, fileName: String,
-                  folderName: String = fileName.substringBeforeLast('.').ifEmpty { fileName }): WorkspaceDocument {
+                  folderName: String = fileName.substringBeforeLast('.').ifEmpty { fileName },
+                  checkCancelled: () -> Unit = {}): WorkspaceDocument {
         val layers = document.source.layers.filter { it.raster.width > 0 && it.raster.height > 0 }
         if (layers.isEmpty()) return document
         // Entries come in the layers' order; a reference layer's material places as a reference again.
-        val entries = WorkspaceMaterialFiles.layered(document.source, listOf(WorkspaceMaterialFiles.name(folderName, "source")), fileName)
+        val entries = WorkspaceMaterialFiles.layered(document.source, listOf(WorkspaceMaterialFiles.name(folderName, "source")), fileName, checkCancelled)
             .mapIndexed { index, entry -> entry.copy(fileFolder = 0, reference = layers.getOrNull(index)?.id?.raw in document.layout.referenceLayerIds) }
         val before = document.layout.materials.items.size
-        val added = add(document, entries, null)
+        val added = add(document, entries, null, checkCancelled)
         val items = added.layout.materials.items.drop(before)
         check(items.size == layers.size) { "Every layer becomes one material" }
         return added.copy(layout = added.layout.copy(layerMaterials = added.layout.layerMaterials + layers.map { it.id.raw }.zip(items.map { it.id })))

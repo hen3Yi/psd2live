@@ -1,6 +1,7 @@
 package io.github.psd2live.scenario
 
 import io.github.psd2live.core.Side
+import io.github.psd2live.core.RigBuildProfile
 import io.github.psd2live.ui.state.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
@@ -14,6 +15,9 @@ class MeshSplitMenuScenario {
 
 	private fun editor(body: suspend (PSD2LiveViewModel) -> Unit) = runBlocking {
 		val choices = AppSettings.startChoices
+        val profile = System.getenv("PSD2LIVE_IMPORT_PROFILE") == "1"
+        val wasRecording = RigBuildProfile.recording
+        if (profile) { RigBuildProfile.reset(); RigBuildProfile.recording = true }
 		try {
 			PSD2LiveViewModel().use { vm ->
 				vm.setStateForTest(vm.state.value.copy(atlasSize = 512, exportMoc3 = false, generatePhysics = false))
@@ -23,6 +27,12 @@ class MeshSplitMenuScenario {
 				}
 			}
 		} finally {
+            if (profile) {
+                RigBuildProfile.recording = wasRecording
+                RigBuildProfile.snapshot().forEach { (stage, measurement) ->
+                    println("$stage: ${measurement.first} ms (${measurement.second} calls)")
+                }
+            }
 			AppSettings.startChoices = choices
 		}
 	}
@@ -38,8 +48,10 @@ class MeshSplitMenuScenario {
 	/** The longest the UI thread went without running a 10 ms tick while [block] ran. */
 	private suspend fun longestUiStall(block: suspend () -> Unit): Long = coroutineScope {
 		var longest = 0L
+        val ready = CompletableDeferred<Unit>()
 		val ticker = launch(Dispatchers.Main) {
 			var last = System.nanoTime()
+            ready.complete(Unit)
 			while (isActive) {
 				delay(10)
 				val now = System.nanoTime()
@@ -47,14 +59,14 @@ class MeshSplitMenuScenario {
 				last = now
 			}
 		}
-		try { block() } finally { ticker.cancelAndJoin() }
+		try { ready.await(); block() } finally { ticker.cancelAndJoin() }
 		longest
 	}
 
 	private fun sourceNames(vm: PSD2LiveViewModel) = vm.state.value.analysis?.source?.layers?.map { it.name }.orEmpty()
 
 	@Test fun theMenuSplitsAPsdGeneratedOnTheStartPage() = editor { vm ->
-		val scale = System.getProperty("psd2live.scenario.splitScale")?.toFloat() ?: 1f
+		val scale = (System.getProperty("psd2live.scenario.splitScale") ?: System.getenv("PSD2LIVE_SPLIT_SCALE"))?.toFloat() ?: 1f
 		vm.setStartChoices(StartQuickPreset.DEFAULT.choices)
 		vm.setInputPath(Characters.eyesPsd(temp, scale).toString())
 		val importStall = longestUiStall {

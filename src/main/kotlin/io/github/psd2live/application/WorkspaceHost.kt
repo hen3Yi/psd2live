@@ -290,7 +290,11 @@ internal class WorkspaceHost<V>(
     override suspend fun importPsd(path: String, discardUnsaved: Boolean): WorkspaceMutationResult = editMutex.withLock {
         val (state, current) = captureSourceImport(discardUnsaved)
         val input = Path.of(path)
-        val owned = runInterruptible(Dispatchers.IO) { io.github.psd2live.project.OwnedProjectSource.capture(workspaceStore.root, input) }
+        val owned = runInterruptible(Dispatchers.IO) {
+            io.github.psd2live.core.RigBuildProfile.threadStage("source import: capture owned PSD") {
+                io.github.psd2live.project.OwnedProjectSource.capture(workspaceStore.root, input)
+            }
+        }
         val result = sourceImporter.importPsd(owned.path, state.capture?.projectId, state.state, discardUnsaved,
             sourceConfig(state, current), sourceAuxiliary = owned.auxiliary,
             displayName = input.fileName.toString()) { document, preview, id ->
@@ -333,7 +337,9 @@ internal class WorkspaceHost<V>(
             spatialByViewId.clear()
             scheduleHistoryPersistence(result.capture.projectId)
         }
-        presentation.modelPublished(result.capture.model)
+        io.github.psd2live.core.RigBuildProfile.threadStage("source import: renderer notification") {
+            presentation.modelPublished(result.capture.model)
+        }
     }
 
     override suspend fun importCmo3(path: Path, mode: io.github.psd2live.core.Cmo3ImportMode,

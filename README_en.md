@@ -2,6 +2,8 @@
 
 [中文](README.md) | [日本語](README_ja.md)
 
+> **This is a modified version of PSD2Live (the InkPet fork).** Based on upstream 0.1.0 (commit `f5b7931`) and modified by hen3Yi in 2026-09/10 for the [InkPet](https://github.com/hen3Yi/inkpet) desktop pet: tail physics, eyes that close onto a straight line (the "U-shaped" closed eye described below does not apply to this branch) and more. See [INKPET.md](INKPET.md) for the changes, downloads and build steps. Upstream: <https://github.com/tsunehimatoi/psd2live>
+
 PSD2Live is an automated Live2D model generation pipeline and desktop application. Given a layered PSD file, the system automatically performs semantic layer recognition, 8-connected bilateral splitting, adaptive Delaunay mesh triangulation, 9-pose facial lattice construction, multi-pendulum hair dynamics, and seamless idle loop generation, exporting both editable `.cmo3` editor projects and runtime `.moc3` file families.
 
 ---

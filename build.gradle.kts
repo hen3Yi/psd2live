@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "io.github.psd2live"
-version = "0.1.0"
+version = "0.1.0-inkpet.1"
 
 kotlin {
 	jvmToolchain(21)

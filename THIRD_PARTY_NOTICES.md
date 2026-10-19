@@ -6,6 +6,8 @@ PSD2Live is licensed under GNU GPL version 3. See `LICENSE`.
 
 The application links the local Umamo `format`, `runtime`, `interop`, and `render` modules through a Gradle composite build. Umamo is licensed under GPL-3.0. Its source and original license are located in the adjacent `../umamo` directory.
 
+This fork (see `INKPET.md`) is built against Umamo commit `a6efc01567eb7cb4ecdc0daea8161f705de9be71` without changes. Each release of this fork attaches that source as `umamo-a6efc01-source.zip`.
+
 ## Stretchy Studio
 
 Copyright (c) 2026 Nguyen Phan. Licensed under the MIT License.
@@ -20,3 +22,12 @@ For instructions on configuring an official SDK runtime locally for official ren
 - [Live2D SDK Setup Guide (English)](docs/en/CUBISM_SDK_SETUP.md)
 - [Live2D SDK 配置指南 (中文)](docs/zh/CUBISM_SDK_SETUP.md)
 - [Live2D SDK 設定・利用ガイド (日本語)](docs/ja/CUBISM_SDK_SETUP.md)
+
+## Release packages of this fork
+
+Besides PSD2Live and Umamo (GPL-3.0), the jar and the portable package bundle:
+
+- Kotlin, kotlinx, Compose Multiplatform / Jetpack Compose runtime and Skiko: Apache License 2.0. Their license files ship inside the jars (`META-INF`).
+- JNA 5.18.0: Apache License 2.0 or LGPL 2.1, see `licenses/JNA-5.18.0`.
+- The portable package only: an OpenJDK 21 runtime image created with jlink, GPL-2.0 with the Classpath Exception. Its notices are in `runtime/legal`.
+

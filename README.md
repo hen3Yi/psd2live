@@ -2,6 +2,8 @@
 
 [English](README_en.md) | [日本語](README_ja.md)
 
+> **这是给 [InkPet 墨宠](https://github.com/hen3Yi/inkpet) 用的修改版（InkPet fork）。** 基于上游 PSD2Live 0.1.0（提交 `f5b7931`），2026-09～10 由 hen3Yi 修改：加了尾巴物理，闭眼改成直线（下文「闭眼 U 形曲线」的说法不适用于本分支）等。改了什么、怎么下载和编译，见 [INKPET.md](INKPET.md)。上游项目：<https://github.com/tsunehimatoi/psd2live>
+
 PSD2Live 是一个自动化的 Live2D 模型生成流水线与桌面应用。输入分层 PSD 文件，系统自动完成图层语义识别、连通域双侧拆分、自适应三角网格剖分、九轴面部经纬网与解耦变形器层级构建、头发多摆物理与果冻眼动力学模拟及循环待机动作生成，一键导出可编辑的 `.cmo3` 编辑器工程与运行时 `.moc3` 文件族。
 
 ---

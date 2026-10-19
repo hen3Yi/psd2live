@@ -8,6 +8,7 @@ import org.umamo.format.art.SourceArt
 import org.umamo.format.moc3.Moc3
 import org.umamo.format.moc3.json.FileReferences
 import org.umamo.format.moc3.json.Model3Group
+import org.umamo.format.moc3.json.Model3HitArea
 import org.umamo.format.moc3.json.Model3Json
 import org.umamo.format.moc3.json.Model3Motion
 import org.umamo.format.psd.PsdReader
@@ -189,6 +190,19 @@ class PSD2LivePipeline {
 				add(Moc3Sidecars.PassThroughSidecar(Moc3Sidecars.SidecarKind.Motion, motionPair.first, motionPair.second))
 			}
 		}
+		// InkPet fork (2026-09-22): always write HitAreas into model3.json. pixi-live2d-display's
+		// Cubism 5 path fails to load a model without the field ("t.map is not a function" in
+		// getHitAreaDefs). Hit areas are picked by the RigBuilder.uniqueDrawableId naming convention.
+		val drawableIds = exportPuppet.drawables.map { it.id.raw }
+		val hitAreas = buildList {
+			drawableIds.firstOrNull { it == "ArtMeshFace" || it.startsWith("ArtMeshFace") }
+				?.let { add(Model3HitArea(name = "Head", id = it)) }
+			val body = drawableIds.firstOrNull { it == "ArtMeshBody" }
+				?: drawableIds.firstOrNull { it.startsWith("ArtMeshTopwear") }
+				?: drawableIds.firstOrNull { it.startsWith("ArtMeshBottomwear") }
+				?: drawableIds.firstOrNull { it.startsWith("ArtMeshLegwear") }
+			body?.let { add(Model3HitArea(name = "Body", id = it)) }
+		}.takeIf { it.isNotEmpty() }
 		val manifestTemplate = Model3Json(
 			version = 3,
 			fileReferences = FileReferences(
@@ -200,6 +214,7 @@ class PSD2LivePipeline {
 				Model3Group("Parameter", "EyeBlink", listOf("ParamEyeLOpen", "ParamEyeROpen")),
 				Model3Group("Parameter", "LipSync", listOf("ParamMouthOpenY")),
 			),
+			hitAreas = hitAreas,
 		)
 		val bundle = Moc3Sidecars.bundle(exportPuppet, baseName, pages = pages, sidecars = sidecars, source = manifestTemplate)
 		validateBundle(bundle)

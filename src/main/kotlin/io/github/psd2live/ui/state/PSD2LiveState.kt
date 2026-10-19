@@ -28,7 +28,8 @@ data class PSD2LiveState(
 	val atlasSize: Int = 4096,
 	val meshSpacing: Int = 64,
 	val texturePadding: Int = 2,
-	val alphaThreshold: Int = 8,
+	// InkPet fork (2026-09-21): keep in step with PipelineConfig in core/Model.kt (8 -> 64).
+	val alphaThreshold: Int = 64,
 	val headStrength: Float = 1.0f,
 	val bodyStrength: Float = 1.0f,
 	val meshOnly: Boolean = false,

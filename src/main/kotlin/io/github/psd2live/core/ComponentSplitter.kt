@@ -72,12 +72,28 @@ object ComponentSplitter {
 			}
 			if (pixels.size >= 12) components += Component(pixels.toIntArray(), minX, minY, maxX, maxY, sumX.toFloat() / pixels.size)
 		}
-		val largest = components.sortedByDescending { it.pixels.size }.take(2)
-		if (largest.size < 2) return listOf(layer)
-		val firstCanvasX = source.bounds.left + largest[0].centroidX
-		val secondCanvasX = source.bounds.left + largest[1].centroidX
-		if ((firstCanvasX < faceCenterX) == (secondCanvasX < faceCenterX)) return listOf(layer)
-		return largest.sortedBy { it.centroidX }.map { component ->
+		// InkPet fork (2026-09-22): keep every connected component on each side of the face centre and
+		// merge them into one piece per side. Upstream kept only the two largest components, so smaller
+		// pieces on the same side were silently dropped (e.g. an eyelid crease drawn on the eyelash
+		// layer, 258 px next to a 4161 px lash). Left/right is still decided by the centroid.
+		if (components.isEmpty()) return listOf(layer)
+		val leftGroup = components.filter { source.bounds.left + it.centroidX < faceCenterX }
+		val rightGroup = components.filter { source.bounds.left + it.centroidX >= faceCenterX }
+		if (leftGroup.isEmpty() || rightGroup.isEmpty()) return listOf(layer)
+		val merged = listOf(leftGroup, rightGroup).map { group ->
+			val size = group.sumOf { it.pixels.size }
+			val px = IntArray(size)
+			var o = 0
+			var sumX = 0L
+			for (c in group) for (q in c.pixels) { px[o++] = q; sumX += q % width }
+			Component(
+				px,
+				group.minOf { it.minX }, group.minOf { it.minY },
+				group.maxOf { it.maxX }, group.maxOf { it.maxY },
+				sumX.toFloat() / size,
+			)
+		}
+		return merged.sortedBy { it.centroidX }.map { component ->
 			// Viewer-left is the character's right; viewer-right is the character's left.
 			val side = if (source.bounds.left + component.centroidX < faceCenterX) Side.RIGHT else Side.LEFT
 			val virtual = extract(source, component, side)

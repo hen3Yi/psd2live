@@ -119,7 +119,32 @@ internal object AdaptiveMeshGenerator {
 
 		val solidMask = SolidAlphaMask(width, height, hardened.rgba, 1, outerContours.map { it.points })
 		val budgetSpacing = sqrt(width.toDouble() * height / (1_200.0 * 0.8660254037844386))
-		val gridSpacing = max(max(6.0, spacing.toDouble()), budgetSpacing)
+		// InkPet fork (2026-09-22): cap the grid spacing at a third of the main content's short side.
+		// Upstream only looked at the requested spacing and the vertex budget, so a thin small layer such
+		// as a mouth (26x9 px) was gridded at ~29 px, its outline got two or three samples and the mesh
+		// collapsed into a 1-2 px line. Large layers are unaffected: their short side is far larger
+		// than three times the spacing.
+		val contentShortSide = outerContours
+			.maxByOrNull { contourArea(it.points) }
+			?.let { contour ->
+				var minimumX = Int.MAX_VALUE
+				var maximumX = Int.MIN_VALUE
+				var minimumY = Int.MAX_VALUE
+				var maximumY = Int.MIN_VALUE
+				for (index in 0 until contour.points.size / 2) {
+					val x = contour.points[index * 2]
+					val y = contour.points[index * 2 + 1]
+					if (x < minimumX) minimumX = x
+					if (x > maximumX) maximumX = x
+					if (y < minimumY) minimumY = y
+					if (y > maximumY) maximumY = y
+				}
+				min(maximumX - minimumX, maximumY - minimumY).toDouble().coerceAtLeast(1.0)
+			} ?: Double.MAX_VALUE
+		val gridSpacing = min(
+			max(max(6.0, spacing.toDouble()), budgetSpacing),
+			max(6.0, contentShortSide / 3.0),
+		)
 		val boundaryLoops = outerContours.map { contour ->
 			buildBezierBoundary(contour.points, width, height, gridSpacing)
 		}

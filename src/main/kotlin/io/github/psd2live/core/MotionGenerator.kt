@@ -9,17 +9,26 @@ object MotionGenerator {
 			curve("ParamBreath", listOf(0f to 0f, 1.5f to 1f, 3f to 0f, 4.5f to 1f, 6f to 0f)),
 			curve("ParamAngleZ", listOf(0f to -2f, 1.5f to 2f, 3f to -2f, 4.5f to 2f, 6f to -2f)),
 			curve("ParamBodyAngleX", listOf(0f to -1.2f, 3f to 1.2f, 6f to -1.2f)),
-			curve("ParamEyeLOpen", listOf(0f to 1f, 2.7f to 1f, 2.78f to 0f, 2.88f to 1f, 6f to 1f)),
-			curve("ParamEyeROpen", listOf(0f to 1f, 2.7f to 1f, 2.78f to 0f, 2.88f to 1f, 6f to 1f)),
+			// Same rhythm as blinkCurve() (close 0.08 s / hold 0.34 s / open 0.16 s), at 2.60-3.18 s.
+			curve("ParamEyeLOpen", listOf(0f to 1f, 2.60f to 1f, 2.68f to 0f, 3.02f to 0f, 3.18f to 1f, 6f to 1f)),
+			curve("ParamEyeROpen", listOf(0f to 1f, 2.60f to 1f, 2.68f to 0f, 3.02f to 0f, 3.18f to 1f, 6f to 1f)),
 		),
 	)
 
+	/**
+	 * InkPet fork (2026-09-22): blink with a short hold, like the desktop pet's own blink:
+	 * close 0.08 s -> hold 0.34 s -> open 0.16 s (0.58 s in total). The upstream curve reopened
+	 * right after closing, which reads as a twitch.
+	 */
+	private fun blinkCurve(): List<Pair<Float, Float>> =
+		listOf(0f to 1f, 0.08f to 0f, 0.42f to 0f, 0.58f to 1f)
+
 	fun blink(): String = buildMotionJson(
-		duration = 1.2f,
+		duration = 0.58f,
 		loop = false,
 		curves = listOf(
-			curve("ParamEyeLOpen", listOf(0f to 1f, 0.35f to 1f, 0.45f to 0f, 0.58f to 1f, 1.2f to 1f)),
-			curve("ParamEyeROpen", listOf(0f to 1f, 0.35f to 1f, 0.45f to 0f, 0.58f to 1f, 1.2f to 1f)),
+			curve("ParamEyeLOpen", blinkCurve()),
+			curve("ParamEyeROpen", blinkCurve()),
 		),
 	)
 
@@ -52,7 +61,7 @@ object MotionGenerator {
 		  "Version": 3,
 		  "Meta": {
 		    "Duration": $duration,
-		    "Fps": 30.0,
+		    "Fps": 60.0,
 		    "Loop": $loop,
 		    "AreBeziersRestricted": true,
 		    "CurveCount": ${curves.size},

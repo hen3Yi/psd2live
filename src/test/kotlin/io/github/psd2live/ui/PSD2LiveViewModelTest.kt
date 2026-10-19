@@ -28,7 +28,7 @@ class PSD2LiveViewModelTest {
 		assertEquals(4096, config.atlasSize)
 		assertEquals(64, config.meshSpacing)
 		assertEquals(2, config.texturePadding)
-		assertEquals(8, config.alphaThreshold)
+		assertEquals(64, config.alphaThreshold) // InkPet fork: default raised from 8
 		assertEquals(1.0f, config.headTurnStrength)
 		assertEquals(1.0f, config.bodyStrength)
 		assertFalse(config.meshOnly)

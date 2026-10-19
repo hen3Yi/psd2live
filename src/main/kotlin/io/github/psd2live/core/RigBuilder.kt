@@ -145,6 +145,13 @@ object RigBuilder {
 		val eyeWhiteLayers = rigLayerById.values.filter {
 			it.semantic.tag == SemanticTag.EYEWHITE && it.opaquePixels > 0
 		}
+		// InkPet fork (2026-09-22): the "eye close" art is not deformed itself, but it defines the
+		// closed-eye line: its centre is used when such a layer exists, otherwise the line falls back to
+		// eyeWhite.top + 0.62h. Always using the fallback left the squashed lash and eye white about
+		// 14 px away from the drawn closed eye, which showed as a double line during a blink.
+		val eyeCloseLayers = rigLayerById.values.filter {
+			it.semantic.tag == SemanticTag.EYE_CLOSE && it.opaquePixels > 0
+		}
 		val faceCandidates = rigLayerById.values.filter { it.semantic.tag in faceTags && it.opaquePixels > 0 }
 		val faceFrame = (faceCandidates.map { it.bounds } + faceRig.face)
 			.reduce(Bounds::union)
@@ -223,6 +230,7 @@ object RigBuilder {
 					parentAndFrame.second,
 					faceRig,
 					matchingEyeWhiteBounds(rigLayer, eyeWhiteLayers),
+					matchingEyeWhiteBounds(rigLayer, eyeCloseLayers),
 					mouthAperture,
 				)
 			}
@@ -702,11 +710,15 @@ object RigBuilder {
 			?: (faceWarpId to faceFrame)
 		SemanticTag.NOSE -> faceRig.regionFor(FaceFeature.NOSE, layer.semantic.side)?.let { featureWarpId(it) to it.bounds }
 			?: (faceWarpId to faceFrame)
+		// InkPet fork (2026-09-22): mouth layers follow the face nine-pose warp directly. The mouth
+		// feature region did not always line up with the drawn mouth and pulled a thin mouth line
+		// ~60 px off its art until it disappeared. Trade-off: no mouth-specific offset.
 		SemanticTag.MOUTH, SemanticTag.MOUTH_OPEN, SemanticTag.MOUTH_CLOSE,
-		SemanticTag.TOOTH_T, SemanticTag.TOOTH_B, SemanticTag.TONGUE ->
-			faceRig.regionFor(FaceFeature.MOUTH, layer.semantic.side)?.let { featureWarpId(it) to it.bounds } ?: (faceWarpId to faceFrame)
-		SemanticTag.EARS, SemanticTag.EARWEAR -> faceRig.regionFor(FaceFeature.EAR, layer.semantic.side)?.let { featureWarpId(it) to it.bounds }
-			?: (faceWarpId to faceFrame)
+		SemanticTag.TOOTH_T, SemanticTag.TOOTH_B, SemanticTag.TONGUE -> faceWarpId to faceFrame
+		// InkPet fork (2026-09-22): ears follow the face nine-pose warp too (same 8x8 grid, same
+		// interpolation), so the ear roots no longer separate from the face when the head turns.
+		// DeformEarOcclusionBoth is left in place but empty; it does not affect rendering.
+		SemanticTag.EARS, SemanticTag.EARWEAR -> faceWarpId to faceFrame
 		SemanticTag.FRONT_HAIR -> frontHair?.let { frontHairPhysicsWarpId to it } ?: (headWarpId to head)
 		SemanticTag.BACK_HAIR -> backHair?.let { backHairPhysicsWarpId to it } ?: (headWarpId to head)
 		else -> when {
@@ -826,12 +838,13 @@ object RigBuilder {
 		parentFrame: Bounds,
 		faceRig: NinePoseFaceRig,
 		eyeWhiteBounds: List<Bounds>,
+		eyeCloseBounds: List<Bounds>,
 		mouthAperture: Bounds?,
 	): KeyformGrid<MeshDeltaForm> {
 		val tag = layer.semantic.tag
 		return when (tag) {
 			SemanticTag.EYEWHITE, SemanticTag.EYELASH ->
-				eyeClosureGrid(layer, data, parentFrame, faceRig, eyeWhiteBounds)
+				eyeClosureGrid(layer, data, parentFrame, faceRig, eyeWhiteBounds, eyeCloseBounds)
 			// Blink does not key the iris directly. The independent physics output supplies a small,
 			// delayed squash/stretch while eye-white clipping removes it as the lid closes.
 			SemanticTag.IRIDES -> irisJellyGrid(layer, data, parentFrame)
@@ -849,6 +862,7 @@ object RigBuilder {
 		frame: Bounds,
 		faceRig: NinePoseFaceRig,
 		eyeWhiteBounds: List<Bounds>,
+		eyeCloseBounds: List<Bounds>,
 	): KeyformGrid<MeshDeltaForm> {
 		val parameter = if (layer.semantic.side == Side.LEFT) StandardParameters.EYE_L_OPEN else StandardParameters.EYE_R_OPEN
 		// Column sampling is defined in the source raster's canvas X axis.  Once the head has been
@@ -870,6 +884,7 @@ object RigBuilder {
 					Side.NONE -> if (canvasX >= faceRig.centerX) values[0] else values[1]
 				}
 				val whiteBounds = eyeWhiteBounds.minByOrNull { abs(it.centerX - canvasX) } ?: layer.bounds
+				val closeBounds = eyeCloseBounds.minByOrNull { abs(it.centerX - canvasX) }
 				val closed = eyeClosurePoint(
 					canvasX,
 					canvasY,
@@ -877,6 +892,7 @@ object RigBuilder {
 					whiteBounds,
 					layer.semantic.tag,
 					eyelashCenterline?.let { sampleCenterline(it, layer, canvasX) } ?: layer.centroidY,
+					closeBounds,
 				)
 				delta[vertex] = (closed.first - canvasX) / frame.width.coerceAtLeast(1e-4f) * (1f - openness)
 				delta[vertex + 1] = (closed.second - canvasY) / frame.height.coerceAtLeast(1e-4f) * (1f - openness)
@@ -898,21 +914,24 @@ object RigBuilder {
 		eyeWhiteBounds: Bounds,
 		tag: SemanticTag,
 		sourceAnchorY: Float = layerBounds.centerY,
+		eyeCloseBounds: Bounds? = null,
 	): Pair<Float, Float> {
-		val halfWidth = (eyeWhiteBounds.width * 0.5f).coerceAtLeast(1e-4f)
-		val normalizedX = ((sourceX - eyeWhiteBounds.centerX) / halfWidth).coerceIn(-1f, 1f)
-		val arch = max(0f, 1f - normalizedX * normalizedX)
-		// Keep the trough at 72% of the eye-white height, but raise the endpoints from 48% to 34%.
-		// This deepens the U without increasing its centre travel and reduces movement at both corners.
-		val edgeY = eyeWhiteBounds.top + eyeWhiteBounds.height * 0.34f
-		val curveY = edgeY + max(1.5f, eyeWhiteBounds.height * 0.38f) * arch
+		// InkPet fork (2026-09-22): close onto a straight line (the eye-close art's centre, or 62% of
+		// the eye-white box) instead of upstream's U-shaped curve. The eye-close art itself is not
+		// deformed, so the U curve ended up ~22 px away from it and showed a double line mid-blink.
+		val lineY = eyeCloseBounds?.centerY ?: (eyeWhiteBounds.top + eyeWhiteBounds.height * 0.62f)
 		val layerHeight = layerBounds.height.coerceAtLeast(1f)
 		val verticalScale = when (tag) {
-			SemanticTag.EYELASH -> 0.88f
+			// Squash the lashes to 15%; buildChannels also fades them out as the eye closes.
+			SemanticTag.EYELASH -> 0.15f
+			// The eye white must stay very thin: it is also the iris clipping mask ("eye-white clipping
+			// removes it as the lid closes"). A thicker eye white leaves iris colour inside the closed eye.
 			SemanticTag.EYEWHITE -> (1.2f / layerHeight).coerceIn(0.015f, 0.55f)
 			else -> (1.2f / layerHeight).coerceIn(0.015f, 0.55f)
 		}
-		return sourceX to curveY + (sourceY - sourceAnchorY) * verticalScale
+		// Squash around lineY itself; squashing around sourceAnchorY (the lash centre line or the
+		// layer centre) shifted the closed line by up to ~2 px.
+		return sourceX to lineY + (sourceY - lineY) * verticalScale
 	}
 
 	/** Alpha-weighted centre of every source column, with transparent gaps linearly bridged. */
@@ -1068,8 +1087,32 @@ object RigBuilder {
 	private fun buildChannels(layer: ClassifiedLayer): ChannelGrids {
 		val opacityGrid = when (layer.semantic.tag) {
 			SemanticTag.EYE_CLOSE -> {
-				val parameter = if (layer.semantic.side == Side.LEFT) StandardParameters.EYE_L_OPEN else StandardParameters.EYE_R_OPEN
-				scalarGrid(parameter, floatArrayOf(0f, 1f)) { open -> 1f - open }
+				val parameter = when (layer.semantic.side) {
+					Side.RIGHT -> StandardParameters.EYE_R_OPEN
+					// NONE means the art was not split into left/right (ComponentSplitter normally splits
+					// EYE_CLOSE / EYELASH); bind it to the left eye instead of falling through to the right one.
+					else -> StandardParameters.EYE_L_OPEN
+				}
+				// InkPet fork (2026-09-22): fade the closed-eye art in over a narrow window (fully shown at
+				// open <= 0.235, hidden at open >= 0.385) instead of linearly over the whole range. With
+				// 1 - open the closed eye was drawn half-transparent over a still-open eye for most of the
+				// blink, which showed as a dark shadow above the lid.
+				scalarGrid(parameter, floatArrayOf(0f, 0.235f, 0.385f, 1f)) { open ->
+					1f - ((open - 0.235f) / 0.15f).coerceIn(0f, 1f)
+				}
+			}
+			// InkPet fork (2026-09-22): the open-eye layers (lash, eye white, iris) fade out over the same
+			// window, so a fully closed eye shows only the closed-eye art and no opaque lash band.
+			SemanticTag.EYELASH, SemanticTag.EYEWHITE, SemanticTag.IRIDES -> {
+				val parameter = when (layer.semantic.side) {
+					Side.RIGHT -> StandardParameters.EYE_R_OPEN
+					// NONE means the art was not split into left/right (ComponentSplitter normally splits
+					// EYE_CLOSE / EYELASH); bind it to the left eye instead of falling through to the right one.
+					else -> StandardParameters.EYE_L_OPEN
+				}
+				scalarGrid(parameter, floatArrayOf(0f, 0.235f, 0.385f, 1f)) { open ->
+					((open - 0.235f) / 0.15f).coerceIn(0f, 1f)
+				}
 			}
 			SemanticTag.MOUTH_CLOSE -> scalarGrid(StandardParameters.MOUTH_OPEN, floatArrayOf(0f, 1f)) { 1f - it }
 			SemanticTag.TONGUE, SemanticTag.TOOTH_T, SemanticTag.TOOTH_B ->

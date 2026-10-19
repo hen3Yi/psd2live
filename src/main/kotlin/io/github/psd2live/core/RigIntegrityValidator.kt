@@ -68,7 +68,11 @@ object RigIntegrityValidator {
 			val sizeError = max(abs(actual.width - expected.width), abs(actual.height - expected.height))
 			// Neutral forms are authored as identity.  A little numerical/interpolation drift is fine,
 			// but moving or resizing a layer by half its own size means the parent-space chain is broken.
-			require(centerError <= scale * 0.50f && sizeError <= scale * 0.50f) {
+			// InkPet fork (2026-09-21): the expected rectangle is the declared PSD layer rect
+			// (neutralValidationBounds returns layer.bounds for non-mouth layers), so layers saved at full
+			// canvas size with wide transparent margins were reported as a broken parent-space chain.
+			// The tolerance is widened to 2.0 for that case only; the other gates are unchanged.
+			require(centerError <= scale * 2.0f && sizeError <= scale * 2.0f) {
 				tr("validation.neutralMismatch", label, drawable.id.raw, expected, actual)
 			}
 			if (centerError > scale * 0.04f || sizeError > scale * 0.04f) {

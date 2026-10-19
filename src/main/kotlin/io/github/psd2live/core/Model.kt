@@ -98,7 +98,10 @@ data class PipelineConfig(
 	val atlasSize: Int = 4096,
 	val texturePadding: Int = 2,
 	val meshSpacing: Int = 64,
-	val alphaThreshold: Int = 8,
+	// InkPet fork (2026-09-21): upstream default 8 is too permissive for PSDs that carry faint
+	// stray pixels (alpha <= 26) across the canvas; they stretch layer bounds to the full canvas and
+	// throw off the face frame, centre and nine-pose anchors. 64 keeps bounds on the real content.
+	val alphaThreshold: Int = 64,
 	val headTurnStrength: Float = 1f,
 	val bodyStrength: Float = 1f,
 	val meshOnly: Boolean = false,

@@ -12,8 +12,9 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class EyeRigTest {
+	// InkPet fork: the closed eye is a straight line (upstream bent the lash into a U).
 	@Test
-	fun `closed eyelash bends into a U around the eye-white centre line`() {
+	fun `closed eyelash lands on a straight line at 62 percent of the eye white`() {
 		val white = Bounds(20f, 30f, 80f, 50f)
 		val lash = Bounds(17f, 21f, 83f, 45f)
 
@@ -22,17 +23,22 @@ class EyeRigTest {
 		val right = RigBuilder.eyeClosurePoint(white.right, lash.centerY, lash, white, SemanticTag.EYELASH)
 
 		assertEquals(white.centerX, centre.first)
-		assertTrue(centre.second > left.second + white.height * 0.20f, "the lash centre must bend downward")
-		assertEquals(left.second, right.second, 1e-5f, "the closed U must stay symmetric")
+		assertEquals(left.second, centre.second, 1e-5f, "the closed line must be straight")
+		assertEquals(left.second, right.second, 1e-5f, "the closed line must stay symmetric")
+		val lineY = white.top + white.height * 0.62f
+		val onLine = RigBuilder.eyeClosurePoint(white.centerX, lineY, lash, white, SemanticTag.EYELASH)
+		assertEquals(lineY, onLine.second, 1e-4f, "points on the closed line stay put")
 	}
 
 	@Test
-	fun `eyelash trough covers the compressed eye white with only slight thinning`() {
+	fun `closed eye follows the eye-close art and squashes the lash to 15 percent`() {
 		val white = Bounds(20f, 30f, 80f, 50f)
 		val lash = Bounds(17f, 21f, 83f, 45f)
-		val lashCentre = RigBuilder.eyeClosurePoint(white.centerX, lash.centerY, lash, white, SemanticTag.EYELASH)
-		val whiteCentre = RigBuilder.eyeClosurePoint(white.centerX, white.centerY, white, white, SemanticTag.EYEWHITE)
-		assertEquals(whiteCentre.second, lashCentre.second, 1e-5f, "lash and eye white must share the trough")
+		val closeArt = Bounds(22f, 38f, 78f, 44f)
+		val onArt = RigBuilder.eyeClosurePoint(
+			white.centerX, closeArt.centerY, lash, white, SemanticTag.EYELASH, eyeCloseBounds = closeArt,
+		)
+		assertEquals(closeArt.centerY, onArt.second, 1e-4f, "the closed line sits on the eye-close art")
 
 		val lashTop = RigBuilder.eyeClosurePoint(white.centerX, lash.top, lash, white, SemanticTag.EYELASH)
 		val lashBottom = RigBuilder.eyeClosurePoint(white.centerX, lash.bottom, lash, white, SemanticTag.EYELASH)
@@ -40,8 +46,8 @@ class EyeRigTest {
 		val whiteBottom = RigBuilder.eyeClosurePoint(white.centerX, white.bottom, white, white, SemanticTag.EYEWHITE)
 		val lashThickness = lashBottom.second - lashTop.second
 		val whiteThickness = whiteBottom.second - whiteTop.second
-		assertEquals(lash.height * 0.88f, lashThickness, 1e-5f, "the lash should become only slightly thinner")
-		assertTrue(lashThickness > whiteThickness, "the lash must cover the compressed eye white")
+		assertEquals(lash.height * 0.15f, lashThickness, 1e-4f, "the lash is squashed to 15%")
+		assertTrue(whiteThickness < lashThickness, "the eye white stays thinner than the lash")
 	}
 
 	@Test

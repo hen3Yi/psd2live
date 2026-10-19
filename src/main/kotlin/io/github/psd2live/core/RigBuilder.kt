@@ -55,6 +55,8 @@ object StandardParameters {
 	val BREATH = ParameterId("ParamBreath")
 	val HAIR_FRONT = ParameterId("ParamHairFront")
 	val HAIR_BACK = ParameterId("ParamHairBack")
+	val TAIL = ParameterId("ParamTail")
+	val TAIL_WAG = ParameterId("ParamTailWag")
 
 	val all: List<Parameter>
 		get() = listOf(
@@ -76,6 +78,8 @@ object StandardParameters {
 			Parameter(BREATH, tr("model.parameter.breath"), 0f, 1f, 0f),
 			Parameter(HAIR_FRONT, tr("model.parameter.hairFront"), -1f, 1f, 0f),
 			Parameter(HAIR_BACK, tr("model.parameter.hairBack"), -1f, 1f, 0f),
+			Parameter(TAIL, tr("model.parameter.tail"), -1f, 1f, 0f),
+			Parameter(TAIL_WAG, tr("model.parameter.tailWag"), -1f, 1f, 0f),
 		)
 }
 
@@ -102,6 +106,9 @@ object RigBuilder {
 	private val frontHairPhysicsWarpId = DeformerId("DeformHairFrontPhysics")
 	private val backHairFollowWarpId = DeformerId("DeformHairBackFollow")
 	private val backHairPhysicsWarpId = DeformerId("DeformHairBackPhysics")
+	private val tailRootWarpId = DeformerId("DeformTailRoot")
+	private val tailPhysicsWarpId = DeformerId("DeformTailPhysics")
+	private val tailWagWarpId = DeformerId("DeformTailWag")
 
 	private val faceTags = setOf(
 		SemanticTag.FACE,
@@ -160,11 +167,19 @@ object RigBuilder {
 		val backHairCandidates = rigLayerById.values.filter { it.semantic.tag == SemanticTag.BACK_HAIR && it.opaquePixels > 0 }
 		val frontHairFrame = frontHairCandidates.map { it.bounds }.takeIf { it.isNotEmpty() }?.reduce(Bounds::union)?.expanded(0.04f)
 		val backHairFrame = backHairCandidates.map { it.bounds }.takeIf { it.isNotEmpty() }?.reduce(Bounds::union)?.expanded(0.04f)
+		// Tails stay in body space (never head space): they hang from the hips behind the body.
+		val tailFrame = analysis.layers
+			.filter { it.semantic.tag == SemanticTag.TAIL && it.opaquePixels > 0 }
+			.map { it.bounds }
+			.takeIf { it.isNotEmpty() }
+			?.reduce(Bounds::union)
+			?.expanded(0.04f)
 
 		val headPartId = PartId("PartHead")
 		val facePartId = PartId("PartFace")
 		val frontHairPartId = PartId("PartHairFront")
 		val backHairPartId = PartId("PartHairBack")
+		val tailPartId = PartId("PartTail")
 		val headAccessoryPartId = PartId("PartHeadAccessories")
 		val bodyPartId = PartId("PartBody")
 		val extraPartId = PartId("PartExtra")
@@ -177,10 +192,12 @@ object RigBuilder {
 				faceFrame,
 				frontHairFrame,
 				backHairFrame,
+				tailFrame,
 				headPartId,
 				facePartId,
 				frontHairPartId,
 				backHairPartId,
+				tailPartId,
 				bodyPartId,
 				config,
 			)
@@ -203,7 +220,7 @@ object RigBuilder {
 			}
 			val isHeadLayer = inferredGroup(layer, analysis.anchors) == LayerGroup.HEAD
 			val rigLayer = rigLayerById.getValue(layer.source.id.raw)
-			val parentAndFrame = parentAndFrame(layer, faceRig, analysis.anchors, characterFrame, headFrame, faceFrame, frontHairFrame, backHairFrame)
+			val parentAndFrame = parentAndFrame(layer, faceRig, analysis.anchors, characterFrame, headFrame, faceFrame, frontHairFrame, backHairFrame, tailFrame)
 			val id = uniqueDrawableId(layer, idCounts)
 			val effectiveHeadSpace = if (isHeadLayer && shouldBuildDeformers) headSpace else null
 			val meshData = buildGridMesh(
@@ -483,10 +500,12 @@ object RigBuilder {
 		faceFrame: Bounds,
 		frontHair: Bounds?,
 		backHair: Bounds?,
+		tail: Bounds?,
 		headPartId: PartId,
 		facePartId: PartId,
 		frontHairPartId: PartId,
 		backHairPartId: PartId,
+		tailPartId: PartId,
 		bodyPartId: PartId,
 		config: PipelineConfig,
 	): List<Deformer> {
@@ -591,7 +610,57 @@ object RigBuilder {
 				curlRatio = 0.025f,
 			)
 		}
+		tail?.let { frame ->
+			deformers += tailDeformers(frame, character, tailPartId)
+		}
 		return deformers
+	}
+
+	internal fun tailRootPoint(inCharacter: Bounds, u: Float, v: Float, bodyX: Float): Pair<Float, Float> {
+		// The tail sits behind the body, so a body turn shifts it slightly the other way.
+		val parallax = -bodyX / 10f * 0.012f
+		return (inCharacter.left + u * inCharacter.width + parallax) to (inCharacter.top + v * inCharacter.height)
+	}
+
+	/**
+	 * Program-driven wag (idle sway, wag on click).  Quadratic falloff moves more of the tail than
+	 * the cubic physics tip weight, so a wag reads as the whole tail swinging from the root.
+	 */
+	internal fun tailWagPoint(u: Float, v: Float, wag: Float, normalizedSway: Float, normalizedCurl: Float): Pair<Float, Float> {
+		val weight = v * v
+		return (u + wag * normalizedSway * weight) to (v - wag * wag * normalizedCurl * weight)
+	}
+
+	/**
+	 * Tail chain below the breath warp: root (body-space frame) -> physics (ParamTail, physics3)
+	 * -> wag (ParamTailWag, driven by the host program).  Assumes a hanging tail whose root is the
+	 * top edge of its frame; the top row stays pinned in both swinging warps.
+	 */
+	private fun tailDeformers(frame: Bounds, character: Bounds, part: PartId): List<Deformer> {
+		val inCharacter = mapBounds(frame, character)
+		val rootGrid = warpGrid(listOf(axis(StandardParameters.BODY_X, -10f, 0f, 10f)), columns = 3, rows = 4) { u, v, values ->
+			tailRootPoint(inCharacter, u, v, values[0])
+		}
+		val root = Deformer.Warp(tailRootWarpId, tr("model.deformer.tailRoot"), breathWarpId, part, 4, 3, true, rootGrid)
+		val physics = hairPhysicsWarp(
+			tailPhysicsWarpId,
+			tr("model.deformer.tailPhysics"),
+			StandardParameters.TAIL,
+			tailRootWarpId,
+			frame,
+			part,
+			rows = 6,
+			swayRatio = 0.22f,
+			curlRatio = 0.05f,
+		)
+		val scale = minOf(frame.width, frame.height).coerceAtLeast(1f)
+		val wagSway = scale / frame.width.coerceAtLeast(1f) * 0.30f
+		val wagCurl = scale / frame.height.coerceAtLeast(1f) * 0.06f
+		val wagGrid = warpGrid(listOf(axis(StandardParameters.TAIL_WAG, -1f, 0f, 1f)), columns = 3, rows = 6) { u, v, values ->
+			tailWagPoint(u, v, values[0], wagSway, wagCurl)
+		}
+		val wag = Deformer.Warp(tailWagWarpId, tr("model.deformer.tailWag"), tailPhysicsWarpId, part, 6, 3, true, wagGrid)
+		return listOf(root, physics, wag)
 	}
 
 	private fun featureWarp(
@@ -701,6 +770,7 @@ object RigBuilder {
 		faceFrame: Bounds,
 		frontHair: Bounds?,
 		backHair: Bounds?,
+		tail: Bounds?,
 	): Pair<DeformerId, Bounds> = when (layer.semantic.tag) {
 		SemanticTag.IRIDES -> faceRig.regionFor(FaceFeature.IRIS, layer.semantic.side)?.let { gazeWarpId(it) to it.bounds }
 			?: (faceWarpId to faceFrame)
@@ -721,6 +791,7 @@ object RigBuilder {
 		SemanticTag.EARS, SemanticTag.EARWEAR -> faceWarpId to faceFrame
 		SemanticTag.FRONT_HAIR -> frontHair?.let { frontHairPhysicsWarpId to it } ?: (headWarpId to head)
 		SemanticTag.BACK_HAIR -> backHair?.let { backHairPhysicsWarpId to it } ?: (headWarpId to head)
+		SemanticTag.TAIL -> tail?.let { tailWagWarpId to it } ?: (breathWarpId to character)
 		else -> when {
 			layer.semantic.tag in faceTags -> faceWarpId to faceFrame
 			inferredGroup(layer, anchors) == LayerGroup.HEAD -> headWarpId to head
@@ -1137,7 +1208,7 @@ object RigBuilder {
 			group("ParamGroupBrows", tr("model.group.brows"), listOf(StandardParameters.BROW_L_Y, StandardParameters.BROW_R_Y)),
 			group("ParamGroupMouth", tr("model.group.mouth"), listOf(StandardParameters.MOUTH_FORM, StandardParameters.MOUTH_OPEN)),
 			group("ParamGroupBody", tr("model.group.body"), listOf(StandardParameters.BODY_X, StandardParameters.BODY_Y, StandardParameters.BODY_Z, StandardParameters.BREATH)),
-			group("ParamGroupPhysics", tr("model.group.physics"), listOf(StandardParameters.HAIR_FRONT, StandardParameters.HAIR_BACK)),
+			group("ParamGroupPhysics", tr("model.group.physics"), listOf(StandardParameters.HAIR_FRONT, StandardParameters.HAIR_BACK, StandardParameters.TAIL, StandardParameters.TAIL_WAG)),
 		)
 	}
 

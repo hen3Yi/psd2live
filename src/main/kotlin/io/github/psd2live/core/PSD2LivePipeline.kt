@@ -71,6 +71,7 @@ class PSD2LivePipeline {
 		val hasFrontHair = analysis.layers.any { it.semantic.tag == SemanticTag.FRONT_HAIR && it.opaquePixels > 0 }
 		val hasBackHair = analysis.layers.any { it.semantic.tag == SemanticTag.BACK_HAIR && it.opaquePixels > 0 }
 		val hasEyeJelly = analysis.layers.any { it.semantic.tag == SemanticTag.IRIDES && it.opaquePixels > 0 }
+		val hasTail = analysis.layers.any { it.semantic.tag == SemanticTag.TAIL && it.opaquePixels > 0 }
 		Files.createDirectories(outputRoot)
 		val files = mutableListOf<ExportedFile>()
 		val warnings = (analysis.warnings + rig.warnings + neutralRig.warnings).toMutableList()
@@ -105,8 +106,9 @@ class PSD2LivePipeline {
 			val useFrontHairPhysics = hasFrontHair && config.generatePhysics && config.physicsFrontHair && !config.meshOnly
 			val useBackHairPhysics = hasBackHair && config.generatePhysics && config.physicsBackHair && !config.meshOnly
 			val useEyeJellyPhysics = hasEyeJelly && config.generatePhysics && config.physicsEyeJelly && !config.meshOnly
-			if (useFrontHairPhysics || useBackHairPhysics || useEyeJellyPhysics) {
-				Cmo3PhysicsInjector.inject(converted.model.root as CModelSource, useFrontHairPhysics, useBackHairPhysics, useEyeJellyPhysics)
+			val useTailPhysics = hasTail && config.generatePhysics && config.physicsTail && !config.meshOnly
+			if (useFrontHairPhysics || useBackHairPhysics || useEyeJellyPhysics || useTailPhysics) {
+				Cmo3PhysicsInjector.inject(converted.model.root as CModelSource, useFrontHairPhysics, useBackHairPhysics, useEyeJellyPhysics, useTailPhysics)
 			}
 			val bytes = Cmo3.write(converted.model)
 			files += writeContained(outputRoot, "$baseName.cmo3", bytes)
@@ -146,11 +148,13 @@ class PSD2LivePipeline {
 		val hasFrontHair = analysis.layers.any { it.semantic.tag == SemanticTag.FRONT_HAIR && it.opaquePixels > 0 }
 		val hasBackHair = analysis.layers.any { it.semantic.tag == SemanticTag.BACK_HAIR && it.opaquePixels > 0 }
 		val hasEyeJelly = analysis.layers.any { it.semantic.tag == SemanticTag.IRIDES && it.opaquePixels > 0 }
+		val hasTail = analysis.layers.any { it.semantic.tag == SemanticTag.TAIL && it.opaquePixels > 0 }
 		val useFrontHairPhysics = hasFrontHair && config.generatePhysics && config.physicsFrontHair && !config.meshOnly
 		val useBackHairPhysics = hasBackHair && config.generatePhysics && config.physicsBackHair && !config.meshOnly
 		val useEyeJellyPhysics = hasEyeJelly && config.generatePhysics && config.physicsEyeJelly && !config.meshOnly
-		val physics = if (useFrontHairPhysics || useBackHairPhysics || useEyeJellyPhysics) {
-			PhysicsGenerator.generate(useFrontHairPhysics, useBackHairPhysics, useEyeJellyPhysics)?.let(CubismJson::normalize)
+		val useTailPhysics = hasTail && config.generatePhysics && config.physicsTail && !config.meshOnly
+		val physics = if (useFrontHairPhysics || useBackHairPhysics || useEyeJellyPhysics || useTailPhysics) {
+			PhysicsGenerator.generate(useFrontHairPhysics, useBackHairPhysics, useEyeJellyPhysics, useTailPhysics)?.let(CubismJson::normalize)
 		} else null
 
 		val motions = buildList<Pair<String, Pair<String, String>>> {
@@ -303,9 +307,11 @@ class PSD2LivePipeline {
 		val hasFrontHair = analysis.layers.any { it.semantic.tag == SemanticTag.FRONT_HAIR && it.opaquePixels > 0 }
 		val hasBackHair = analysis.layers.any { it.semantic.tag == SemanticTag.BACK_HAIR && it.opaquePixels > 0 }
 		val hasEyeJelly = analysis.layers.any { it.semantic.tag == SemanticTag.IRIDES && it.opaquePixels > 0 }
+		val hasTail = analysis.layers.any { it.semantic.tag == SemanticTag.TAIL && it.opaquePixels > 0 }
 		val useFrontHair = hasFrontHair && config.generatePhysics && config.physicsFrontHair && !config.meshOnly
 		val useBackHair = hasBackHair && config.generatePhysics && config.physicsBackHair && !config.meshOnly
 		val useEyeJelly = hasEyeJelly && config.generatePhysics && config.physicsEyeJelly && !config.meshOnly
+		val useTail = hasTail && config.generatePhysics && config.physicsTail && !config.meshOnly
 		return """
 		{
 		  "version": 1,
@@ -316,8 +322,8 @@ class PSD2LivePipeline {
 		  "canvas": {"width":${analysis.source.widthPx},"height":${analysis.source.heightPx}},
 		  "config": {"atlasSize":${config.atlasSize},"meshSpacing":${config.meshSpacing},"headTurnStrength":${config.headTurnStrength},"bodyStrength":${config.bodyStrength},"meshOnly":${config.meshOnly},"generateDeformers":${config.generateDeformers},"exportMotions":${config.exportMotions}},
 		  "faceRig": {"algorithm":"perspective-parallelogram-nine-pose-v2","angleX":[-45,0,45],"angleY":[-30,0,30],"initialAngleZ":${rig.initialHeadAngleZ},"centerX":${rig.faceCenterX},"centerY":${rig.faceCenterY},"radiusX":${rig.faceRadiusX},"radiusY":${rig.faceRadiusY}},
-		  "deformerHierarchy": {"head":"DeformHeadContainer","face":"DeformFaceNinePose","frontHair":["DeformHairFrontFollow","DeformHairFrontPhysics"],"backHair":["DeformHairBackFollow","DeformHairBackPhysics"]},
-		  "physics": {"enabled":${config.generatePhysics && !config.meshOnly},"frontHair":$useFrontHair,"backHair":$useBackHair,"eyeJelly":$useEyeJelly,"preset":"hair-and-eye-pendulum"},
+		  "deformerHierarchy": {"head":"DeformHeadContainer","face":"DeformFaceNinePose","frontHair":["DeformHairFrontFollow","DeformHairFrontPhysics"],"backHair":["DeformHairBackFollow","DeformHairBackPhysics"],"tail":["DeformTailRoot","DeformTailPhysics","DeformTailWag"]},
+		  "physics": {"enabled":${config.generatePhysics && !config.meshOnly},"frontHair":$useFrontHair,"backHair":$useBackHair,"eyeJelly":$useEyeJelly,"tail":$useTail,"preset":"hair-and-eye-pendulum"},
 		  "summary": {"layers":${analysis.layers.size},"drawables":${rig.puppet.drawables.size},"deformers":${rig.puppet.deformers.size},"parameters":${rig.puppet.parameters.size},"atlasPages":${atlas.pages.size}},
 		  "layers": [
 		$layers

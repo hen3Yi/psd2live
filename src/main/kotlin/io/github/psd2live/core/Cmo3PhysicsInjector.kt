@@ -18,8 +18,8 @@ import java.util.UUID
 
 /** Writes editable Cubism physics settings into a fresh CMO3 graph. */
 internal object Cmo3PhysicsInjector {
-	fun inject(root: CModelSource, hasFrontHair: Boolean, hasBackHair: Boolean, hasEyeJelly: Boolean = false): Int {
-		val rules = PhysicsGenerator.rules(hasFrontHair, hasBackHair, hasEyeJelly)
+	fun inject(root: CModelSource, hasFrontHair: Boolean, hasBackHair: Boolean, hasEyeJelly: Boolean = false, hasTail: Boolean = false): Int {
+		val rules = PhysicsGenerator.rules(hasFrontHair, hasBackHair, hasEyeJelly, hasTail)
 		val physicsSet = root.physicsSettingsSourceSet as? CPhysicsSettingsSourceSet
 			?: error(tr("error.cmo3MissingPhysicsSet"))
 		// The pipeline only injects into its own fresh graph, so replace the known empty collection

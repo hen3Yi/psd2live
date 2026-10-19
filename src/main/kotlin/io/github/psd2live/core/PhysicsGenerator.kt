@@ -36,7 +36,7 @@ object PhysicsGenerator {
 		val angleMaximum: Float,
 	)
 
-	internal fun rules(hasFrontHair: Boolean, hasBackHair: Boolean, hasEyeJelly: Boolean): List<PhysicsRule> = buildList {
+	internal fun rules(hasFrontHair: Boolean, hasBackHair: Boolean, hasEyeJelly: Boolean, hasTail: Boolean = false): List<PhysicsRule> = buildList {
 		if (hasFrontHair) {
 			add(
 				hairRule(
@@ -65,6 +65,33 @@ object PhysicsGenerator {
 					delay = 0.8f,
 					acceleration = 1.5f,
 					angleMinimum = -30f,
+					angleMaximum = 30f,
+				),
+			)
+		}
+		if (hasTail) {
+			// A tail hangs from the hips, so it is driven by the body rather than the head.
+			add(
+				PhysicsRule(
+					id = "PhysicsTail",
+					name = tr("model.physics.tail"),
+					outputParameter = "ParamTail",
+					outputScale = 1.8f,
+					outputVertexIndex = 1,
+					inputs = listOf(
+						InputRule("ParamBodyAngleX", 60f, InputType.X),
+						InputRule("ParamBodyAngleZ", 60f, InputType.ANGLE),
+						InputRule("ParamAngleX", 20f, InputType.X),
+					),
+					vertices = listOf(
+						VertexRule(0f, 1f, 1f, 1f, 0f),
+						VertexRule(18f, 0.9f, 0.9f, 1.3f, 18f),
+					),
+					positionMinimum = -10f,
+					positionDefault = 0f,
+					positionMaximum = 10f,
+					angleMinimum = -30f,
+					angleDefault = 0f,
 					angleMaximum = 30f,
 				),
 			)
@@ -132,8 +159,8 @@ object PhysicsGenerator {
 		angleMaximum = angleMaximum,
 	)
 
-	fun generate(hasFrontHair: Boolean, hasBackHair: Boolean, hasEyeJelly: Boolean = false): String? {
-		val rules = rules(hasFrontHair, hasBackHair, hasEyeJelly)
+	fun generate(hasFrontHair: Boolean, hasBackHair: Boolean, hasEyeJelly: Boolean = false, hasTail: Boolean = false): String? {
+		val rules = rules(hasFrontHair, hasBackHair, hasEyeJelly, hasTail)
 		if (rules.isEmpty()) return null
 		val settings = rules.map(::settingJson)
 		val dictionary = rules.map { rule -> "{ \"Id\": \"${rule.id}\", \"Name\": \"${rule.name}\" }" }

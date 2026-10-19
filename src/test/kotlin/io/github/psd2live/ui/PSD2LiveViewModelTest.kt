@@ -42,6 +42,7 @@ class PSD2LiveViewModelTest {
 		assertTrue(config.physicsFrontHair)
 		assertTrue(config.physicsBackHair)
 		assertTrue(config.physicsEyeJelly)
+		assertTrue(config.physicsTail) // InkPet fork
 		assertTrue(config.exportCmo3)
 		assertTrue(config.exportMoc3)
 		assertTrue(config.exportJson)

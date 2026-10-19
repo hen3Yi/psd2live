@@ -145,10 +145,18 @@ internal object AdaptiveMeshGenerator {
 			max(max(6.0, spacing.toDouble()), budgetSpacing),
 			max(6.0, contentShortSide / 3.0),
 		)
-		val boundaryLoops = outerContours.map { contour ->
-			buildBezierBoundary(contour.points, width, height, gridSpacing)
-		}
-		if (boundaryLoops.any { it.size < 3 }) return null
+		// Hair layers carry many thin detached strands; a strand narrower than the grid spacing can
+		// collapse to fewer than three boundary points. Drop such secondary loops (and loops that
+		// fail to triangulate below) instead of failing the whole layer: a failed layer falls back to
+		// a rectangle over its entire raster, which stretches slivers to the canvas corners.
+		val primaryContour = outerContours.maxByOrNull { contourArea(it.points) }
+		val primaryLoop = buildBezierBoundary(primaryContour!!.points, width, height, gridSpacing)
+			.ifEmpty { hullBoundary(primaryContour.points, gridSpacing) }
+		if (primaryLoop.size < 3) return null
+		val boundaryLoops = listOf(primaryLoop) + outerContours
+			.filter { it !== primaryContour }
+			.map { contour -> buildBezierBoundary(contour.points, width, height, gridSpacing) }
+			.filter { it.size >= 3 }
 
 		val gridCandidates = sampleInterior(solidMask, gridSpacing)
 		val globalPoints = mutableListOf<Point>()
@@ -159,7 +167,8 @@ internal object AdaptiveMeshGenerator {
 			val interior = gridCandidates.filter { candidate ->
 				pointInPolygon(candidate, boundary) && distanceSquaredToLoop(candidate, boundary) >= edgeClearance * edgeClearance
 			}
-			val local = constrainedTriangulate(boundary, interior, gridSpacing) ?: return null
+			val local = constrainedTriangulate(boundary, interior, gridSpacing)
+				?: if (boundary === primaryLoop) return null else continue
 			val offset = globalPoints.size
 			globalPoints += local.points
 			globalTriangles += local.triangles.map { triangle ->
@@ -211,6 +220,45 @@ internal object AdaptiveMeshGenerator {
 			if (sampled.size >= 3 && !hasCollapsedEdge && !hasSelfIntersection(sampled)) return sampled
 		}
 		return emptyList()
+	}
+
+	/**
+	 * Fallback outline for silhouettes whose fitted curve self-intersects at every handle strength
+	 * (long hair: narrow gaps between strands cross once the outline is expanded). The convex hull,
+	 * resampled at the grid spacing, can never self-intersect; the extra area it covers is
+	 * transparent in the texture, so it only costs a few large triangles.
+	 */
+	private fun hullBoundary(source: IntArray, spacing: Double): List<Point> {
+		val points = List(source.size / 2) { Point(source[it * 2].toDouble(), source[it * 2 + 1].toDouble()) }
+			.distinct()
+			.sortedWith(compareBy<Point>({ it.x }, { it.y }))
+		if (points.size < 3) return emptyList()
+		fun cross(o: Point, a: Point, b: Point) = (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
+		val hull = mutableListOf<Point>()
+		for (pass in 0..1) {
+			val start = hull.size
+			for (point in if (pass == 0) points else points.asReversed()) {
+				while (hull.size >= start + 2 && cross(hull[hull.size - 2], hull[hull.size - 1], point) <= 0.0) {
+					hull.removeAt(hull.size - 1)
+				}
+				hull += point
+			}
+			hull.removeAt(hull.size - 1)
+		}
+		if (hull.size < 3) return emptyList()
+		val step = max(4.0, spacing)
+		val sampled = mutableListOf<Point>()
+		for (index in hull.indices) {
+			val a = hull[index]
+			val b = hull[(index + 1) % hull.size]
+			val length = distance(a, b)
+			val segments = max(1, (length / step).toInt())
+			for (k in 0 until segments) {
+				val t = k.toDouble() / segments
+				sampled += Point(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
+			}
+		}
+		return sampled
 	}
 
 	/** Bounded low-pass filter: removes raster stair steps without deleting or merging controls. */

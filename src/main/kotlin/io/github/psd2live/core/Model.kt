@@ -115,6 +115,7 @@ data class PipelineConfig(
 	val physicsFrontHair: Boolean = true,
 	val physicsBackHair: Boolean = true,
 	val physicsEyeJelly: Boolean = true,
+	val physicsTail: Boolean = true,
 	val exportCmo3: Boolean = true,
 	val exportMoc3: Boolean = true,
 	val exportJson: Boolean = true,
